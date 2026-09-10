@@ -1,0 +1,151 @@
+# Décisions techniques et bugs résolus
+
+## [CHOIX] Domicile enregistré plutôt que tracking citoyen en continu
+
+**Contexte :** besoin de notifier le citoyen selon l'ETA du camion sans connaître sa position en temps réel.
+**Alternatives :** tracking GPS continu du citoyen vs enregistrement d'un point fixe (domicile).
+**Décision :** le citoyen enregistre un ou plusieurs points fixes (domicile) ; seule la position du camion est transmise en continu.
+**Leçon :** meilleur pour la batterie, la vie privée et la complexité côté client.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Tracé de tournée = référence indicative, pas un chemin strict
+
+**Contexte :** le trajet réel du camion varie selon le chauffeur/les circonstances.
+**Décision :** le GeoJSON de la tournée sert à rattacher zones et calendrier, pas de map-matching strict pour l'ETA. L'ETA repose sur OSRM (distance routière réelle) + facteur de correction historique par zone.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Backend : Django + GeoDjango plutôt que Symfony/Laravel
+
+**Contexte :** besoin d'un backend avec support géospatial fort (PostGIS), API REST, et proximité avec un futur volet data/statistiques.
+**Alternatives :** Symfony (API Platform), Laravel (packages spatiaux tiers moins matures).
+**Décision :** Django + GeoDjango + Django REST Framework, pour l'intégration ORM native des requêtes spatiales et la maturité de l'écosystème SIG en Python.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Import géographique : GeoJSON pré-converti par l'équipe SIG
+
+**Contexte :** éviter de maintenir un pipeline de conversion Shapefile/KMZ → GeoJSON côté backend.
+**Décision :** l'équipe SIG convertit en amont (QGIS/ArcGIS exportent nativement en GeoJSON) et upload directement le GeoJSON via le web admin. Le backend valide et stocke, il ne transforme pas.
+**Contrainte imposée à l'équipe SIG :** SRID EPSG:4326 obligatoire, convention de `properties` définie (nom, zone, jours de collecte, id camion assigné).
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Routing : OSRM self-hosted
+
+**Contexte :** besoin d'un moteur de calcul d'itinéraire gratuit et sans quota, vu le volume de requêtes attendu (recalcul à chaque position proche d'une zone).
+**Alternatives évaluées :** GraphHopper (cloud limité), Valhalla, OpenRouteService (quota cloud).
+**Décision :** OSRM self-hosted avec données OSM Sénégal via Geofabrik. Gratuit, illimité, pas de dépendance tierce.
+**Point de vigilance :** qualité variable des données OSM selon les quartiers — à vérifier avant de dépendre uniquement du routing sur les zones cibles.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Communication chauffeur → backend : MQTT plutôt que HTTP polling ou WebSocket
+
+**Contexte :** connectivité mobile instable au Sénégal, besoin d'économiser batterie/data, besoin de résister aux coupures réseau.
+**Alternatives :** HTTP polling (overhead de connexion répété), WebSocket (gestion de reconnexion plus lourde à maintenir côté mobile).
+**Décision :** MQTT (broker Mosquitto self-hosted), QoS 1/2 pour garantir la livraison malgré les coupures, mode publish/subscribe adapté au cas d'usage.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Carte live citoyen : WebSocket à la demande (Django Channels + Redis)
+
+**Contexte :** besoin d'un canal temps réel uniquement quand l'écran carte est ouvert côté citoyen, sans connexion permanente en arrière-plan.
+**Décision :** WebSocket via Django Channels, activé à l'ouverture de l'écran carte, fermé à la sortie. Le citoyen ne se connecte jamais directement au broker MQTT — seul le backend relaie.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Notifications : Firebase Cloud Messaging
+
+**Contexte :** besoin d'un service de notifications push gratuit sans limite de volume.
+**Décision :** FCM, gratuit même à fort volume, cohérent avec l'usage déjà prévu de Firebase Auth.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Authentification citoyen et chauffeur : Firebase Auth (OTP téléphone)
+
+**Contexte :** besoin d'une authentification simple sans mot de passe, cohérente avec le reste de la stack Firebase.
+**Décision :** Firebase Auth par OTP SMS pour les deux profils. Côté chauffeur, ajout d'un statut de validation manuelle (`en_attente/valide/rejete`) par un admin société avant toute publication de position possible.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Mobile : Flutter plutôt que React Native ou natif
+
+**Contexte :** besoin d'une codebase unique pour deux apps (chauffeur/citoyen) et deux plateformes, avec un tracking GPS en arrière-plan fiable.
+**Décision :** Flutter — plugins matures pour le tracking GPS en tâche de fond, performance native compilée, `flutter_map` gratuit sans clé API. Android priorisé pour le MVP (marché sénégalais majoritairement Android), iOS repoussé en V2.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Modèle camion ↔ tournée ↔ chauffeur : assignation journalière plutôt que relation fixe
+
+**Contexte :** un camion peut changer de tournée d'un jour à l'autre (remplacement, réorganisation).
+**Décision :** table `AssignationJournaliere (camion, chauffeur, tournee, date)` plutôt qu'un champ `camion_id` fixe sur `Tournee`. Contrainte unique `(camion, date)`.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Relation Zone ↔ Tournée : many-to-many avec ordre de passage
+
+**Contexte :** une tournée traverse souvent plusieurs quartiers dans un ordre donné.
+**Décision :** table de liaison `TourneeZone (tournee, zone, ordre_passage)` plutôt qu'une relation simple un-à-plusieurs.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Calcul ETA : OSRM + facteur de correction historique par zone
+
+**Contexte :** le temps de trajet théorique (routing pur) sous-estime systématiquement l'ETA réel à cause des arrêts fréquents de collecte.
+**Décision :** combiner distance/temps OSRM avec un facteur de correction empirique par zone, calculé à partir de l'historique `PositionCamion` (temps observé vs temps théorique), affiné automatiquement avec l'accumulation de données. Valeur par défaut tant que l'historique est insuffisant.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Anti-spam des notifications par seuil
+
+**Contexte :** un camion à l'arrêt prolongé peut faire osciller l'ETA autour d'un seuil et déclencher des notifications répétées.
+**Décision :** une notification par seuil (30/20/10/5 min) par `(utilisateur, camion_du_jour)` par jour, reset quotidien. Pas de re-notification si l'ETA remonte puis redescend sous un seuil déjà notifié.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Rétention des positions : historique limité + agrégats
+
+**Contexte :** éviter une croissance illimitée des données de position brutes, réduire le risque en cas de fuite de données.
+**Décision :** historique brut `PositionCamion` conservé 24-48h, puis uniquement des agrégats statistiques anonymisés (heure moyenne de passage par zone/jour) conservés à long terme.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Positions en rafale après coupure réseau : ne traiter que la plus récente
+
+**Contexte :** après une coupure, le chauffeur envoie un lot de positions accumulées localement ; les traiter toutes comme du temps réel déclencherait des notifications incohérentes.
+**Décision :** seule la position au timestamp le plus récent du lot déclenche le recalcul ETA/notification ; les autres sont stockées pour historique/statistiques uniquement.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Environnement de développement local : Docker Compose
+
+**Contexte :** besoin d'un environnement local reproductible pour PostGIS, Redis, Mosquitto et OSRM sans installation manuelle de chaque service sur la machine de dev.
+**Décision :** un unique `docker-compose.yml` orchestrant `db` (PostGIS), `redis`, `mosquitto`, `osrm`, `backend` (Django) et `mqtt_listener`. `docker compose up` suffit à démarrer toute la stack locale. Application web et base de données doivent être pleinement exploitables en local via cette stack avant toute mise en production.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Test mobile local : appareil Android physique (Samsung) via USB plutôt qu'émulateur
+
+**Contexte :** besoin de tester les apps Flutter (chauffeur/citoyen) dans des conditions proches du réel, notamment GPS et notifications FCM.
+**Décision :** développement et tests mobiles effectués sur un téléphone Samsung physique connecté en USB (débogage USB activé), plutôt que sur un émulateur Android. Connexion à l'API locale via IP locale du même réseau Wi-Fi, ou via `adb reverse tcp:8000 tcp:8000` si le partage réseau n'est pas disponible.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Dépôt de documentation séparé (`autombalit-docs`)
+
+**Contexte :** deux dépôts de code distincts (`autombalit-backend`, `autombalit-mobile`) ; les fichiers de suivi (`SPEC.md`, `TODO.md`, `DECISIONS.md`, `TASK_PROMPTS.md`...) couvrent les deux à la fois.
+**Alternatives évaluées :** dupliquer les fichiers dans chaque dépôt vs les centraliser dans le dépôt backend vs un dépôt dédié.
+**Décision :** dépôt Git séparé `autombalit-docs`, au même niveau que `autombalit-backend`/`autombalit-mobile` dans un dossier parent commun. Évite la duplication et la divergence entre deux copies. Les sessions Claude Code se lancent depuis le dossier parent pour avoir les trois dépôts visibles simultanément.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Nom du projet : AutoMbalit (anciennement Geopoubelle)
+
+**Contexte :** "Geopoubelle" était un nom de travail pour la conception, pas destiné à être le nom public de l'app. Recherche d'un nom plus original, avec une couleur locale/wolof.
+**Alternatives évaluées :** pistes wolof pur (Waxtu, Fanal), jeux de mots FR/wolof (Bipoubelle, Kaay Poubelle, Mbalit Waxtu, Kaay Mbalit), noms neutres internationaux (Arrivo, Passago, Tourné), pistes centrées sur le métier plutôt que l'objet (Borom Mbalit, Tuurkat — termes wolof attestés pour "éboueur").
+**Décision :** **AutoMbalit** — "mbalit" confirmé comme signifiant "poubelle/ordures" en wolof (sources : glossaire genre et assainissement au Sénégal, sophielehire.com). Combinaison retenue par choix personnel plutôt que sur un terme 100% attesté tel quel — l'association "Auto" + "Mbalit" est une construction, pas une expression figée du wolof.
+**Renommage effectué :** tous les fichiers `.md` du projet (dépôts, packages, identifiants techniques : `autombalit-backend`, `autombalit-mobile`, `autombalit_backend`, `com.autombalit`, bases `autombalit_dev`/`autombalit_prod`, etc.).
+**Point de vigilance :** une recherche a fait remonter une occurrence du terme dans un texte de rap sénégalais avec une connotation dépréciative — signalé et discuté avec l'utilisateur, qui confirme que le nom sonne bien à l'oreille. Validation linguistique considérée comme faite sur cette base ; reste à vérifier la disponibilité du nom de domaine, des comptes réseaux sociaux, des stores et d'une éventuelle marque OAPI avant lancement public (voir `TODO.md` Phase 0).
+**Statut :** 🔵 Choix assumé — disponibilité domaine/réseaux sociaux/stores/marque en attente de vérification
+
+## [CHOIX] Direction visuelle : coloré et accessible
+
+**Contexte :** identité visuelle non définie initialement (`SPEC.md` §10 marqué "à remplir"), besoin de trancher avant la Phase 3 (apps mobiles).
+**Alternatives évaluées :** sobre/institutionnel (mairie, service public) vs coloré/accessible (grand public, tous âges).
+**Décision :** direction coloré/accessible — vert dominant pour l'app citoyen, ambre/orange pour l'app chauffeur, rouge réservé aux alertes/ETA imminent. Typographie généreuse, icônes pleines toujours doublées de texte, zones tactiles larges, contraste WCAG AA minimum. Détail complet dans `SPEC.md` §10.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Glassmorphism en usage mesuré, jamais sur les éléments critiques
+
+**Contexte :** envie d'ajouter un effet glassmorphism à la direction visuelle coloré/accessible déjà retenue, en tension avec la contrainte de contraste WCAG AA (public cible incluant personnes âgées/faible littératie numérique).
+**Décision :** glassmorphism autorisé uniquement sur des éléments secondaires (panneau flottant carte live, barres de navigation), jamais sur les éléments porteurs d'information critique (ETA, calendrier) ou d'action (boutons). Détail des paramètres dans `SPEC.md` §10.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
+
+**Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
+**Décision :** démarrer en scénario C (MVP porté en solo, quartier pilote + société ou camion volontaire) pour prouver le concept, avant d'envisager un partenariat institutionnel ou privé plus large.
+**Statut :** 🔵 Choix assumé — à réévaluer après le test pilote (Phase 5)
