@@ -350,6 +350,8 @@ COPY . .
 docker compose up --build
 ```
 
+> **Attendu à ce stade** : le service `mqtt_listener` va boucler en erreur (`Unknown command: 'run_mqtt_listener'`). C'est normal — cette commande Django n'existe pas encore, elle sera créée lors de la tâche de développement MQTT/ETA (Phase 2, avec Claude Code). En attendant, `docker compose stop mqtt_listener` évite de polluer les logs ; les autres services (`db`, `redis`, `mosquitto`, `osrm`, `backend`) doivent, eux, démarrer sans erreur.
+
 Dans un autre terminal, exécuter les migrations et créer un superutilisateur :
 
 ```bash
@@ -397,15 +399,25 @@ Avec Docker Compose, un seul terminal (en mode `-d` ou détaché) suffit pour fa
 
 ## PHASE 2 — MOBILE LOCAL (FLUTTER SUR TÉLÉPHONE PHYSIQUE)
 
-### 2.1 Créer le dossier du projet et initialiser Git
+### 2.1 Générer le projet Flutter (crée aussi le dossier)
 
 ```bash
-mkdir autombalit-mobile && cd autombalit-mobile
+flutter create --org com.autombalit --project-name autombalit_mobile autombalit-mobile
+cd autombalit-mobile
+```
+
+> Le nom de dossier (`autombalit-mobile`, avec tiret, cohérent avec le nom du dépôt GitHub) et le nom de package Dart (`autombalit_mobile`, avec underscore — obligatoire, un package Dart ne peut pas contenir de tiret) sont volontairement différents. `--project-name` permet cette distinction en une seule commande, sans `mkdir` séparé.
+
+### 2.2 Initialiser Git
+
+`flutter create` ne lance pas `git init` tout seul — mais le `.gitignore` qu'il génère (`build/`, `.dart_tool/`, etc.) est déjà en place, donc autant initialiser Git maintenant pour en profiter dès le premier commit :
+
+```bash
 git init
 git branch -M main
 ```
 
-### 2.2 Créer le dépôt distant sur GitHub
+### 2.3 Créer le dépôt distant sur GitHub
 
 Même procédure qu'en Phase 1.2 (interface web ou `gh repo create`), avec le nom `autombalit-mobile`.
 
@@ -414,14 +426,6 @@ gh repo create autombalit-mobile --private --source=. --remote=origin
 # ou, après création manuelle sur github.com :
 git remote add origin git@github.com:TON_COMPTE/autombalit-mobile.git
 ```
-
-### 2.3 Générer le projet Flutter
-
-```bash
-flutter create --org com.autombalit --project-name autombalit_mobile .
-```
-
-> `flutter create` sur un dossier déjà initialisé en Git n'écrase pas `.git/` — c'est sans risque.
 
 Vérifier que ça compile à vide :
 
