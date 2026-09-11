@@ -14,7 +14,7 @@
 
 - [x] Écrire `docker-compose.yml` (db PostGIS, redis, mosquitto, osrm, backend, mqtt_listener) et `Dockerfile` backend
 - [x] Setup projet Django + PostgreSQL/PostGIS + GeoDjango
-- [ ] Implémenter les modèles de données (Societe, Chauffeur, Camion, Zone, Tournee, TourneeZone, CalendrierCollecte, AssignationJournaliere, PositionCamion, Utilisateur, PointEnregistre, Signalement)
+- [x] Implémenter les modèles de données (Societe, Chauffeur, Camion, Zone, Tournee, TourneeZone, CalendrierCollecte, AssignationJournaliere, PositionCamion, Utilisateur, PointEnregistre, Signalement)
 - [x] Migrations + vérification PostGIS fonctionnelle (via `docker compose exec backend`)
 - [ ] Endpoints DRF de base : CRUD tournées/zones, upload GeoJSON, auth JWT
 - [ ] Validation GeoJSON à l'upload (SRID 4326, type de géométrie, properties requises)

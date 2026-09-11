@@ -152,6 +152,15 @@
 **Leçon :** à l'avenir, figer les versions Django/Python dès le premier `pip install` (ex. `pip install "django>=5,<6"`) plutôt que d'attraper la dernière version disponible, pour éviter l'écart avec `SPEC.md` constaté ici.
 **Statut :** 🔵 Choix assumé — `SPEC.md` §2 reste à corriger dans une prochaine passe documentaire pour refléter Django 6.1.1 / Python 3.13 au lieu de "Django 5.x".
 
+## [CHOIX] Modèles Tâche 2 : valeurs de `AssignationJournaliere.statut` et `CalendrierCollecte.jour_semaine`
+
+**Contexte :** `SPEC.md` §3 définit les champs `statut` (`AssignationJournaliere`) et `jour_semaine` (`CalendrierCollecte`) sans préciser leurs valeurs possibles ; ce niveau de détail n'était pas non plus explicite dans l'historique de conception disponible dans ce dépôt.
+**Décision :**
+- `AssignationJournaliere.statut` : `planifiee` / `en_cours` / `terminee` — cohérent avec l'événement `tournee.status` décrit dans `SPEC.md` §6 (`en_cours`, `terminee`), avec ajout d'un état initial `planifiee` avant démarrage de la tournée.
+- `CalendrierCollecte.jour_semaine` : entier 0 (lundi) à 6 (dimanche) avec choices Django explicites, plutôt qu'un `CharField` libre.
+- Contrainte additionnelle non explicitement demandée mais ajoutée pour l'intégrité des données : `unique_together` sur `TourneeZone (tournee, zone)` (une zone ne peut apparaître qu'une fois par tournée) et sur `CalendrierCollecte (tournee, jour_semaine)` (un seul horaire par jour pour une tournée donnée).
+**Statut :** 🔵 Choix assumé — à réviser si l'historique de conception original prévoyait des valeurs différentes.
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
