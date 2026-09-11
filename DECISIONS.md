@@ -161,6 +161,17 @@
 - Contrainte additionnelle non explicitement demandée mais ajoutée pour l'intégrité des données : `unique_together` sur `TourneeZone (tournee, zone)` (une zone ne peut apparaître qu'une fois par tournée) et sur `CalendrierCollecte (tournee, jour_semaine)` (un seul horaire par jour pour une tournée donnée).
 **Statut :** 🔵 Choix assumé — à réviser si l'historique de conception original prévoyait des valeurs différentes.
 
+## [RÉSOLU] Tâche 3 (Flutter) : versions Gradle/AGP/Kotlin incompatibles avec le Flutter SDK installé
+
+**Contexte :** lors de la vérification de la Tâche 3 (flavors `citoyen`/`chauffeur`), `flutter build apk` échouait sur le scaffolding initial (`GUIDE_DU_DEVELOPPEUR.md` §2.1), avant même toute logique de flavor.
+**Symptôme / Problème :** échecs en cascade : Gradle 8.12 < minimum 8.14 requis par le plugin Gradle de Flutter 3.47.3, puis AGP 8.7.3 < minimum 8.11.1, puis Kotlin 2.1.0 < minimum 2.2.20.
+**Cause :** le scaffolding avait été généré par `flutter create` sans versions figées ; les versions par défaut du template au moment du scaffolding sont devenues incompatibles avec le SDK Flutter effectivement installé sur la machine de dev (Flutter 3.47.3), non lié aux flavors ajoutés dans cette tâche (confirmé via `git log` sur `android/gradle/wrapper/gradle-wrapper.properties`, seul commit = scaffolding initial).
+**Fix :** relevé Gradle → 8.14, AGP → 8.11.1, Kotlin (`org.jetbrains.kotlin.android`) → 2.2.20 dans `android/settings.gradle.kts` et `android/gradle/wrapper/gradle-wrapper.properties`. `android/gradle.properties` a reçu deux flags ajoutés automatiquement par l'outil de migration Flutter (`android.builtInKotlin=false`, `android.newDsl=false`) pour rester compatible avec la structure `build.gradle.kts` existante sans migration complète vers AGP 9 (DSL différent, hors scope de cette tâche).
+**Vérification :** `flutter build apk --flavor citoyen` et `--flavor chauffeur` réussissent ; les deux APK installées et lancées sur le Samsung physique via `adb`, chacune affichant son écran placeholder distinct (`App Citoyen` / `App Chauffeur`) avec un `applicationId` distinct confirmé dans le manifest fusionné (`com.autombalit.citoyen` / `com.autombalit.chauffeur`).
+**Point de vigilance :** des warnings (non bloquants) subsistent invitant à migrer vers AGP 9.0.1+/Gradle 9.1+/Kotlin 2.3.20+ « bientôt » — reporté volontairement car AGP 9 impose une nouvelle DSL Gradle qui casserait la config actuelle ; à traiter dans une tâche dédiée plutôt qu'en aparté d'une tâche de flavors.
+**Leçon :** comme pour Django/Python (voir plus bas), figer les versions d'outillage dès le scaffolding initial (`flutter create`) éviterait ce type de dérive silencieuse découverte seulement au moment de builder pour de vrai.
+**Statut :** ✅ Résolu
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
