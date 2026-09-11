@@ -144,6 +144,14 @@
 **Décision :** glassmorphism autorisé uniquement sur des éléments secondaires (panneau flottant carte live, barres de navigation), jamais sur les éléments porteurs d'information critique (ETA, calendrier) ou d'action (boutons). Détail des paramètres dans `SPEC.md` §10.
 **Statut :** 🔵 Choix assumé
 
+## [CHOIX] Version Django/Python (Tâche 1) : Django 6.1.1 / Python 3.13 plutôt que Django 5.x / Python 3.11+
+
+**Contexte :** `SPEC.md` §2 et `TASK_PROMPTS.md` (Tâche 1, Étape 0) recommandaient Django 5.x / Python 3.11+. Le scaffolding manuel réalisé en amont (`GUIDE_DU_DEVELOPPEUR.md` Phase 1.3, avant la Tâche 1) avait installé sans version figée les dernières versions disponibles au moment de l'exécution : Django 6.1.1 et Python 3.13.0 (venv local `autombalit-backend/venv`).
+**Alternatives :** revenir sur Django 5.x LTS / Python 3.11+ pour coller à `SPEC.md` (implique de recréer le venv et de regénérer `requirements.txt`) vs conserver les versions déjà scaffoldées et commitées.
+**Décision :** conserver Django 6.1.1 / Python 3.13 — confirmé explicitement par l'utilisateur avant de coder (Tâche 1, Étape 0, `AskUserQuestion`). Aucune régression identifiée : `python manage.py check` et `migrate` passent sans erreur sur PostGIS avec cette version.
+**Leçon :** à l'avenir, figer les versions Django/Python dès le premier `pip install` (ex. `pip install "django>=5,<6"`) plutôt que d'attraper la dernière version disponible, pour éviter l'écart avec `SPEC.md` constaté ici.
+**Statut :** 🔵 Choix assumé — `SPEC.md` §2 reste à corriger dans une prochaine passe documentaire pour refléter Django 6.1.1 / Python 3.13 au lieu de "Django 5.x".
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
