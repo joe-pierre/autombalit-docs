@@ -41,7 +41,7 @@
 - [x] App Chauffeur : capture GPS + publication MQTT (fréquence adaptative)
 - [x] App Chauffeur : queue locale hors-ligne (stockage local + retry MQTT QoS 1/2)
 - [x] App Citoyen : auth OTP, enregistrement du domicile (flutter_map)
-- [ ] App Citoyen : réception et affichage des notifications FCM
+- [x] App Citoyen : réception et affichage des notifications FCM
 - [ ] App Citoyen : écran statut du jour (calendrier + dernier passage connu, cache local)
 - [ ] App Citoyen : carte live optionnelle (WebSocket, à la demande)
 - [ ] App Citoyen : formulaire de signalement
