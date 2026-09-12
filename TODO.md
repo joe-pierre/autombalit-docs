@@ -31,7 +31,7 @@
 - [x] Logique de seuils (30/20/10/5 min) avec règle anti-spam (une notif/seuil/jour/utilisateur)
 - [x] Gestion des positions en rafale (ne traiter que la plus récente pour l'ETA/notification)
 - [x] Intégration Firebase Auth (OTP téléphone) côté backend
-- [ ] Intégration FCM (envoi de notifications)
+- [x] Intégration FCM (envoi de notifications)
 
 ## Phase 3 — Apps mobiles (Flutter)
 

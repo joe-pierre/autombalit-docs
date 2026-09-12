@@ -357,6 +357,15 @@
 **Vérification :** 79 tests passent (`docker compose exec backend pytest`), `python manage.py check`/`migrate` propres. Mocks systématiques du vérificateur Firebase (jamais de vrai appel SDK/réseau en test, conforme à `CONVENTIONS.md` §Tests).
 **Statut :** ✅ Résolu
 
+## [CHOIX] Tâche 13 : intégration FCM — token existant réutilisé, nettoyage sur token invalide
+
+**Contexte :** Étape 0 de la Tâche 13 demandait de confirmer l'emplacement de stockage des tokens FCM des appareils citoyens.
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — `Utilisateur.fcm_token` (déjà posé en Tâche 2) réutilisé tel quel, aucune migration nécessaire. Sur un token invalide/non enregistré signalé par FCM (`messaging.UnregisteredError`), `Utilisateur.fcm_token` est vidé (`''`) plutôt que marqué via un champ de statut séparé — plus simple, cohérent avec le champ existant ; l'utilisateur redevient joignable dès que l'app en renvoie un nouveau.
+**Architecture :** `notifications/clients/fcm_client.py` (`envoyer_notification`, `FCMError`/`FCMTokenInvalideError`) encapsule `firebase_admin.messaging`, avec sa propre app Firebase lazy (`_get_app`) qui réutilise l'app par défaut déjà initialisée par `api/clients/firebase_client.py` si elle existe dans le même process (`firebase_admin.get_app()`), sinon l'initialise elle-même — un seul SDK Firebase Admin par process quel que soit l'ordre d'appel entre auth et notifications. `notifications/services/dispatch.py::notifier_seuil_franchi` (point d'extension préparé Tâche 11) appelle ce client : aucun token → envoi ignoré (log) ; `FCMTokenInvalideError` → nettoyage du token ; `FCMError` générique (réseau, quota...) → log, jamais d'exception remontée (le traitement de la position ne doit jamais échouer à cause d'un envoi FCM raté, SPEC.md §13).
+**Point de vigilance :** `firebase_admin` 7.5.0 déprécie `messaging.Message(token=...)` au profit de `fid=` (Firebase Installation ID) — `token=` conservé volontairement ici car c'est ce que produit `FirebaseMessaging.instance.getToken()` côté client Flutter (cohérent avec le nom `Utilisateur.fcm_token`) ; génère un `DeprecationWarning` non bloquant dans les tests, à surveiller si une future version du SDK retire complètement `token`.
+**Vérification :** `docker compose exec backend pytest` → 86 tests passent (mocks systématiques sur `firebase_admin.messaging.send`, aucun appel réseau réel, conforme à `CONVENTIONS.md` §Tests) ; `python manage.py check` et `makemigrations --check --dry-run` propres (aucune migration générée, confirmant l'absence de changement de modèle).
+**Statut :** ✅ Résolu
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
