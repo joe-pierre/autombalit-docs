@@ -4,12 +4,7 @@ Voir `DECISIONS.md` (entrées `[RÉSOLU]`) pour l'historique des bugs corrigés 
 
 # BUGS OUVERTS
 
-## `mqtt_listener` (backend) ne se reconnecte jamais automatiquement à Mosquitto après un redémarrage du broker
-
-**Découvert :** Tâche 16 (`autombalit-mobile`), lors du test manuel de la queue hors-ligne — voir `DECISIONS.md` pour le détail complet.
-**Symptôme :** après un arrêt/redémarrage du broker Mosquitto (`docker compose stop/start mosquitto`), le service `mqtt_listener` reste connecté à son état "déconnecté" (`Déconnecté du broker MQTT : Unspecified error` en boucle dans ses logs) sans jamais retenter la connexion — un `docker compose restart mqtt_listener` manuel est nécessaire pour qu'il recommence à recevoir des positions.
-**Impact :** toute coupure du broker (redémarrage, crash, maintenance) fait perdre silencieusement toutes les positions publiées par les camions tant que `mqtt_listener` n'est pas relancé manuellement — y compris celles republiées avec succès (ack reçu) par la queue hors-ligne côté app chauffeur (Tâche 16), puisque MQTT ne rejoue pas les messages à un abonné absent au moment de la publication.
-**Non corrigé** — hors périmètre de la Tâche 16 (mobile). À traiter dans une tâche dédiée côté `autombalit-backend` (probablement `client.on_disconnect` + logique de reconnexion dans `tracking/clients/mqtt_client.py`, Tâche 9).
+Aucun confirmé pour l'instant. Point de vigilance (pas un bug ouvert actif) : la cause exacte de la perte de positions du test terrain de la Tâche 16 n'a pas pu être établie avec certitude malgré investigation (voir `DECISIONS.md`, entrée « Reconnexion automatique du `mqtt_listener`... »). Un durcissement a été appliqué (backoff de reconnexion borné, logs de reconnexion visibles) mais sans preuve qu'il cible le mécanisme exact d'origine — à surveiller lors du pilote (voir hypothèse `keepalive` MQTT ci-dessous).
 
 # ROADMAP (idées / améliorations futures)
 
@@ -23,6 +18,8 @@ Voir `DECISIONS.md` (entrées `[RÉSOLU]`) pour l'historique des bugs corrigés 
 
 ## Idées ouvertes / à évaluer plus tard
 
+- Accusé applicatif de bout en bout pour la publication de position (au-delà du simple PUBACK MQTT), si des pertes de positions sont à nouveau constatées en pilote malgré le fix de reconnexion du `mqtt_listener` — voir `DECISIONS.md` (« Limite structurelle : un ack MQTT ne garantit qu'une livraison au broker, jamais une persistance en base »).
+- Réduire/configurer explicitement le `keepalive` MQTT de `mqtt_listener` (défaut paho actuel : 60s, jamais fixé explicitement dans `tracking/clients/mqtt_client.py`) si l'hypothèse d'une détection tardive de déconnexion (jusqu'à ~1,5× keepalive sans FIN/RST TCP immédiat) est un jour confirmée comme cause de perte de positions — non vérifiée à ce stade, voir `DECISIONS.md`.
 - Consolidation multi-société dans une seule app citoyen si plusieurs sociétés de collecte couvrent des zones différentes d'une même ville (éviter la fragmentation évoquée au point gouvernance).
 - Contribution/correction collaborative des données OpenStreetMap sur les zones cibles mal cartographiées.
 - Self-host de tuiles OSM (TileServer GL) si le volume d'usage rend la dépendance aux tuiles publiques problématique.
