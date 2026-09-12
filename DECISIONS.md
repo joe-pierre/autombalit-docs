@@ -278,6 +278,29 @@
 **Effet de bord corrigé :** l'image `eclipse-mosquitto:2` termine son process sur `SIGHUP` au lieu de recharger `passwd`/`acl` à chaud (testé), repris seulement grâce à `restart: unless-stopped` — les scripts utilisent donc `docker compose restart mosquitto`, plus explicite. Par ailleurs, `chmod 600`/`700` sur les fichiers `passwd`/`acl` montés depuis l'hôte casse la lecture côté conteneur (UID hôte ≠ UID `mosquitto` du conteneur) et fait planter Mosquitto au redémarrage suivant — permissions par défaut (world-readable, avertissement Mosquitto non bloquant) conservées volontairement en dev local.
 **Statut :** 🔵 Choix assumé — point ouvert sur la distribution des credentials au chauffeur du jour à lever ultérieurement.
 
+## [CHOIX] Tâche 9 : architecture du listener MQTT (management command + client/service/selector dédiés)
+
+**Contexte :** `docker-compose.yml` (Tâche 1) attend déjà une commande `python manage.py run_mqtt_listener` dans le service `mqtt_listener`, en échec depuis la Tâche 7 faute d'implémentation (`Unknown command`). Étape 0 de la Tâche 9 demandait de confirmer ce mécanisme (process séparé) plutôt qu'un consumer Django Channels.
+**Décision :** confirmé — process séparé, implémenté en couches (`CONVENTIONS.md`) :
+- `tracking/clients/mqtt_client.py` (`PositionMQTTClient`) : encapsule `paho-mqtt` (callback API v2), s'abonne à `camions/+/position`, extrait le `camion_id` du topic, délègue à un callback injecté — aucune logique métier, avale toute exception du callback pour ne jamais crasher le listener sur un message individuel.
+- `tracking/services/position_ingestion.py` (`ingest_position`) : parsing/validation du payload JSON (`lat`, `lng`, `horodatage` ISO 8601 timezone-aware), résolution du camion, vérification de la tournée active (voir entrées ci-dessous), création du `PositionCamion`. Payload malformé ou camion inconnu → log + `None` retourné, jamais d'exception remontée au client MQTT.
+- `tracking/selectors/assignations.py` (`get_assignation_en_cours`) : lecture dédiée de l'`AssignationJournaliere` active.
+- `tracking/management/commands/run_mqtt_listener.py` : commande Django minimale, cable juste le client au service.
+**Vérification :** 17 tests (`pytest`, `factory_boy`) sur le service et le client (payload valide/malformé, camion inconnu, tournée non active, rafale) + validation de bout en bout avec le vrai stack Docker Compose (`mosquitto_pub` réel sur un compte `camion_<id>` provisionné, `mqtt_listener` réellement démarré) : position créée si tournée `en_cours`, rejetée sans écriture si `terminee`, payload malformé ignoré sans crash du listener (message valide suivant toujours traité). Ferme au passage l'avertissement de la Tâche 7 sur `mqtt_listener` qui bouclait en erreur.
+**Statut :** ✅ Résolu
+
+## [CHOIX] Tâche 9 : `camion_id` du topic MQTT = `Camion.pk`
+
+**Contexte :** le topic `camions/{camion_id}/position` (Tâche 8) et son provisioning (`scripts/provision_mqtt_camion.sh <camion_id>`) traitaient `camion_id` comme un identifiant libre, sans lien formalisé avec un champ précis du modèle `Camion`.
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — `camion_id` correspond à `Camion.pk` (id numérique). Le listener résout le camion via `Camion.objects.get(pk=camion_id)` ; un id inconnu ou non numérique est traité comme un camion inconnu (log + rejet, pas d'exception).
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Tâche 9 : vérification de tournée active par la date de l'horodatage du message
+
+**Contexte :** la règle métier (`SPEC.md` §4.1, Tâche 9) impose de rejeter toute position hors tournée active. Il fallait trancher quelle date utiliser pour chercher l'`AssignationJournaliere (camion, date, statut=en_cours)` correspondante : la date portée par le message (`horodatage`) ou la date du jour au moment du traitement par le listener.
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — date extraite de l'`horodatage` du message, pas `now()` au moment du traitement. Une position appartient à la journée qu'elle décrit ; ce choix traite correctement une rafale envoyée après minuit avec des timestamps de la veille (cf. règle métier sur les rafales, `SPEC.md` §4.6).
+**Statut :** 🔵 Choix assumé
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).

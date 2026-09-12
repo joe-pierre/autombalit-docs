@@ -25,7 +25,7 @@
 ## Phase 2 — Cœur temps réel
 
 - [x] Setup broker MQTT (Mosquitto) + authentification par camion + ACL par topic
-- [ ] Handler Django : consommation des positions MQTT → écriture `PositionCamion`
+- [x] Handler Django : consommation des positions MQTT → écriture `PositionCamion`
 - [ ] Intégration OSRM pour le calcul de distance/temps
 - [ ] Facteur de correction historique par zone (valeur par défaut le temps d'accumuler l'historique)
 - [ ] Logique de seuils (30/20/10/5 min) avec règle anti-spam (une notif/seuil/jour/utilisateur)
