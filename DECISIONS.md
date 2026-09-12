@@ -240,6 +240,15 @@
 **Décision :** l'endpoint `/api/admin/geojson/upload/` implémenté dans cette tâche ne traite que les `Zone` (`FeatureCollection` de `Polygon`). L'upload du tracé de `Tournee` (`LineString`/`MultiLineString`) n'est pas couvert par cette tâche — à traiter dans une tâche dédiée si besoin, sur ce même endpoint ou un endpoint séparé à trancher à ce moment-là.
 **Statut :** 🔵 Choix assumé
 
+## [CHOIX] Tâche 6 : extrait OSRM Sénégal+Gambie complet, profil `car.lua` par défaut
+
+**Contexte :** les données OSRM avaient déjà été préparées manuellement avant la Tâche 6 (extrait Geofabrik + pipeline `osrm-extract`/`osrm-partition`/`osrm-customize` déjà exécuté, service `osrm` déjà fonctionnel dans `docker-compose.yml`), le quartier pilote n'étant toujours pas choisi (`TODO.md` Phase 0). Étape 0 de la tâche demandait de confirmer le périmètre de l'extrait et le profil de routing.
+**Alternatives évaluées :** refaire un extrait réduit à la région de Dakar (service plus léger en RAM) vs conserver l'extrait Sénégal+Gambie complet déjà préparé.
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — conserver l'extrait Sénégal+Gambie complet (reste valable quel que soit le quartier pilote retenu, évite de refaire tout le pipeline une fois le quartier connu) et le profil `car.lua` par défaut (fourni par l'image `osrm/osrm-backend`), avec l'approximation « camion ≈ voiture » documentée comme point ouvert à revalider en Phase 5 (test pilote réel) — voir `SPEC.md` §1/§9 et `GUIDE_DU_DEVELOPPEUR.md` §1.6.
+**Ajout scripté :** `autombalit-backend/scripts/prepare_osrm_data.sh` scripte le téléchargement (idempotent) + le pipeline extract/partition/customize, en alternative aux commandes manuelles déjà documentées dans `GUIDE_DU_DEVELOPPEUR.md` §1.6. Les fichiers `.osrm*` restent non commités (déjà exclus par `.gitignore` depuis la Tâche 1).
+**Vérification :** `curl "http://localhost:5000/route/v1/driving/-17.4467,14.6928;-17.44,14.70"` retourne une route valide (`"code":"Ok"`) via le service `osrm` du `docker-compose.yml` existant, sans modification nécessaire de ce service (déjà correctement configuré depuis la Tâche 1).
+**Statut :** 🔵 Choix assumé — extrait/profil à réévaluer une fois le quartier pilote choisi et testé en conditions réelles (Phase 5).
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).

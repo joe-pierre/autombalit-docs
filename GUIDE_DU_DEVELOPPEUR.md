@@ -326,6 +326,16 @@ cd ..
 
 Ces trois commandes ne sont à relancer que si l'extrait OSM change — pas à chaque démarrage.
 
+> **Alternative scriptée** : `bash scripts/prepare_osrm_data.sh` (à la racine de `autombalit-backend/`) exécute ces mêmes étapes (téléchargement + extract/partition/customize) en une seule commande, idempotent sur le téléchargement (ne retélécharge pas si le `.osm.pbf` est déjà présent). À utiliser pour régénérer les données après une mise à jour de l'extrait Geofabrik. Une fois la régénération terminée, redémarrer le service : `docker compose restart osrm`.
+>
+> **Périmètre retenu** : extrait Sénégal+Gambie complet (pas de découpage par région), le quartier pilote n'étant pas encore choisi (`TODO.md` Phase 0) — voir `DECISIONS.md`. **Profil de routing** : `car.lua` par défaut (fourni par l'image `osrm/osrm-backend`) — approximation « camion ≈ voiture » assumée en attendant une validation terrain (Phase 5), voir `DECISIONS.md`.
+>
+> **Vérifier que le service répond correctement** une fois `docker compose up` lancé :
+> ```bash
+> curl "http://localhost:5000/route/v1/driving/-17.4467,14.6928;-17.44,14.70"
+> ```
+> Doit retourner un JSON `"code":"Ok"` avec une route calculée (distance/durée) — identique au test de la section 1.10 ci-dessous.
+
 ### 1.7 Écrire le `Dockerfile` du backend (si absent)
 
 ```dockerfile
