@@ -411,7 +411,16 @@
 **Exécuté pour** `+221771234567` (id=5, `Société Test Pilote`). Un autre chauffeur de test (`+221781531736`, id=4) avait déjà été créé manuellement (hors commande) lors d'un test antérieur dans la même société, avec `Camion`/`Tournee`/`AssignationJournaliere` du jour associés.
 **Point ouvert signalé à l'utilisateur, pas encore tranché :** tester l'écran « tournée du jour » de façon significative pour le chauffeur `+221771234567` nécessite un `Camion`/`Tournee`/`AssignationJournaliere` du jour dédiés (ou réutiliser ceux du chauffeur `+221781531736`) — pas créés dans cette tâche, en attente d'accord explicite.
 **Vérification :** commande testée idempotente (rejouée sans doublon), `python manage.py check` propre.
-**Statut :** ✅ Résolu (commande) — données de tournée pour ce chauffeur toujours en attente
+**Statut :** ✅ Résolu (commande) — voir suite ci-dessous (données de tournée créées)
+
+## [RÉSOLU] Backend : commande `seed_tournee_test` — camion/zone/tournée/assignation pour start/stop
+
+**Contexte :** suite de l'entrée précédente — le chauffeur de test `+221771234567` n'avait toujours aucune tournée assignée (écran « Aucune tournée aujourd'hui » confirmé correct sur l'appareil physique), nécessaire pour valider start/stop (Tâche 14) et préparer le test de la capture GPS/MQTT (Tâche 15, qui a aussi besoin d'une tournée `en_cours`).
+**Décision :** deuxième commande de management reproductible, `core/management/commands/seed_tournee_test.py` (`--telephone-chauffeur` requis, `--immatriculation`/`--nom-zone`/`--nom-tournee`/`--nom-societe` avec défauts) — réutilise la Societe de test, crée/réutilise `Camion` (`TEST-001`), `Zone` (`Zone Test`, polygone factice sans contour géographique réel — pas nécessaire pour ce test), `Tournee` (`Tournée Test`) liée à la zone via `TourneeZone(ordre_passage=0)`, puis `update_or_create` l'`AssignationJournaliere` du jour (`camion`+`date` — respecte la contrainte unique existante) avec `statut=planifiee`. Échoue explicitement si le chauffeur n'existe pas encore (indique de lancer `seed_chauffeur_test` d'abord).
+**Effet de bord assumé :** relancer la commande réinitialise le `statut` de l'assignation à `planifiee` à chaque exécution (pratique pour rejouer un test start/stop complet, mais écrase un statut `en_cours`/`terminee` en cours de test si on la relance par erreur).
+**Documentation** : procédure complète de recréation du jeu de données de test (les deux commandes, dans l'ordre) consignée dans `autombalit-docs/FIXTURES_TEST.md` plutôt que dupliquée ici.
+**Vérification :** commande testée idempotente (rejouée sans doublon, assignation réutilisée), `python manage.py check` propre.
+**Statut :** ✅ Résolu — données prêtes pour le test manuel start/stop sur l'appareil physique
 
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
