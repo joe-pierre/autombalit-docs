@@ -37,7 +37,7 @@
 
 - [x] Activer le mode développeur + débogage USB sur le Samsung, vérifier `adb devices`
 - [x] Setup projet Flutter (codebase unique, flavors chauffeur/citoyen)
-- [ ] App Chauffeur : auth OTP, écran tournée du jour, start/stop tournée
+- [x] App Chauffeur : auth OTP, écran tournée du jour, start/stop tournée
 - [ ] App Chauffeur : capture GPS + publication MQTT (fréquence adaptative)
 - [ ] App Chauffeur : queue locale hors-ligne (stockage local + retry MQTT QoS 1/2)
 - [ ] App Citoyen : auth OTP, enregistrement du domicile (flutter_map)
