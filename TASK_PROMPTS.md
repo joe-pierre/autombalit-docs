@@ -456,4 +456,305 @@ Un franchissement de seuil validé déclenche un envoi FCM réel vers le token d
 
 ---
 
-*Les tâches suivantes (Phase 2 restante si applicable, puis Phase 3 et suivantes) seront rédigées au fur et à mesure, une fois les tâches précédentes validées.*
+## TÂCHE 14 — App Chauffeur : auth OTP + écran tournée du jour + start/stop tournée
+
+Contexte : projet AutoMbalit, dépôt `autombalit-mobile`. Se référer à `SPEC.md` §5, §7, §11 et `CONVENTIONS.md` avant toute modification.
+
+Branche : `feat/chauffeur-auth-tournee-du-jour`
+
+Constat
+Le flavor chauffeur existe en placeholder (Tâche 3). Le backend expose `/api/auth/token/` (échange Firebase → JWT, Tâche 12), `/api/tournees/du-jour/`, `/api/tournees/{id}/start/` et `/stop/` (SPEC.md §7). Rien n'existe encore côté app au-delà de l'écran placeholder.
+
+Étape 0 — Avant de coder
+- Confirmer le flux OTP Firebase côté Flutter (`firebase_auth`, `verifyPhoneNumber`) et le stockage sécurisé du JWT (`flutter_secure_storage`, cf. `CONVENTIONS.md`).
+
+TÂCHE
+1. Écran auth OTP dans `lib/driver` : saisie téléphone → code OTP via Firebase Auth → échange de l'ID token contre un JWT applicatif via `/api/auth/token/`.
+2. Stockage du JWT (access + refresh) via `flutter_secure_storage`, gestion du refresh automatique.
+3. Gestion du statut chauffeur : si `en_attente`, écran d'attente de validation (pas d'accès à la tournée) ; si `valide`, accès à l'écran tournée du jour.
+4. Écran tournée du jour : appel à `/api/tournees/du-jour/`, affichage de l'assignation (camion, tournée, zones) ou message "aucune tournée aujourd'hui".
+5. Bouton start/stop tournée, appelant `/start/` et `/stop/`, avec état visuel clair (tournée active/inactive).
+6. Ne pas implémenter : la capture GPS réelle ni la publication MQTT (Tâche 15), la queue hors-ligne (Tâche 16).
+
+Contraintes
+- Architecture en couches (`CONVENTIONS.md`) : logique dans `services/`/`repositories/`, pas dans les widgets.
+- Aucun secret Firebase en dur.
+- Tests widget minimaux pour l'écran auth et l'écran tournée (mock des appels API).
+
+Process
+- Ne fais aucun commit avant que je te dise explicitement "commit".
+- Avant de coder : confirme le flux OTP et le mécanisme de stockage du JWT.
+- En fin de tâche : coche `TODO.md` (Phase 3).
+
+Critère d'acceptation
+Sur le téléphone physique, un chauffeur peut s'authentifier par OTP, voir son statut, consulter sa tournée du jour si validé, démarrer/arrêter la tournée (vérifiable via l'état `AssignationJournaliere` côté backend).
+
+---
+
+## TÂCHE 15 — App Chauffeur : capture GPS + publication MQTT
+
+Contexte : projet AutoMbalit, dépôt `autombalit-mobile`. Se référer à `SPEC.md` §4, §5, `DECISIONS.md` (Tâche 8) et `CONVENTIONS.md` avant toute modification.
+
+Branche : `feat/chauffeur-gps-mqtt`
+
+Constat
+Le start/stop tournée existe (Tâche 14) mais ne déclenche encore aucune capture ni publication réelle. Le backend attend des publications sur `camions/{camion_id}/position` (Tâches 8-9). Le point ouvert de `DECISIONS.md` Tâche 8 ("comment le chauffeur récupère les credentials du camion du jour") doit être tranché ici.
+
+Étape 0 — Avant de coder
+- Trancher le point ouvert de la Tâche 8 : le backend doit exposer les credentials MQTT du camion assigné (probablement dans la réponse de `/api/tournees/du-jour/` ou `/start/`). Si l'endpoint backend correspondant n'existe pas encore, le signaler avant de coder côté Flutter — un complément backend séparé peut être nécessaire en amont.
+
+TÂCHE
+1. Capture GPS (`geolocator` ou équivalent) démarrée uniquement quand la tournée est active (bouton start), stoppée immédiatement au stop — jamais de tracking en tâche de fond hors tournée.
+2. Client MQTT (`mqtt_client`) publiant sur `camions/{camion_id}/position`, authentifié avec les credentials récupérés selon le mécanisme confirmé à l'Étape 0.
+3. Fréquence adaptative de publication (plus fréquente en mouvement, plus espacée à l'arrêt) — formule à proposer et documenter dans `DECISIONS.md`.
+4. Indicateur visuel d'état GPS actif dans l'UI (SPEC.md §11).
+5. Ne pas implémenter : la queue locale hors-ligne/retry (Tâche 16) — publication directe uniquement ici.
+
+Contraintes
+- QoS 1 ou 2 (SPEC.md).
+- Respect strict de la règle "tracking uniquement pendant tournée active".
+- Permissions Android runtime (localisation, y compris arrière-plan si nécessaire) gérées proprement, message clair si refusées.
+
+Process
+- Ne fais aucun commit avant "commit".
+- Avant de coder : confirme le mécanisme de récupération des credentials MQTT, signale si un complément backend est nécessaire en amont.
+- En fin de tâche : coche `TODO.md` (Phase 3), documente la formule de fréquence adaptative dans `DECISIONS.md`.
+
+Critère d'acceptation
+Pendant une tournée active sur le téléphone physique, des `PositionCamion` sont créés côté backend à fréquence adaptative ; le tracking s'arrête immédiatement au stop.
+
+---
+
+## TÂCHE 16 — App Chauffeur : queue locale hors-ligne + retry MQTT
+
+Contexte : projet AutoMbalit, dépôt `autombalit-mobile`. Se référer à `SPEC.md` §6 (hors-ligne) et `CONVENTIONS.md` avant toute modification.
+
+Branche : `feat/chauffeur-queue-hors-ligne`
+
+Constat
+La publication MQTT directe fonctionne en ligne (Tâche 15), mais toute coupure réseau pendant la tournée ferait perdre les positions capturées.
+
+Étape 0 — Avant de coder
+- Confirmer le mécanisme de stockage local (`sqflite` ou file persistée équivalente), cohérent avec la séparation `repositories/` de `CONVENTIONS.md`.
+
+TÂCHE
+1. Stocker localement chaque position capturée dès sa capture, indépendamment de la connectivité.
+2. Tenter la publication MQTT immédiatement ; en cas d'échec/déconnexion, garder en file d'attente locale et réessayer automatiquement à la reconnexion.
+3. Une fois une position confirmée publiée (ack MQTT QoS), la marquer comme envoyée/la purger de la file locale.
+4. Indicateur UI "file d'attente hors-ligne en cours d'envoi" (SPEC.md §11) reflétant le nombre de positions en attente.
+5. Ne pas implémenter : de nouvelle logique de fréquence adaptative (déjà en Tâche 15) — cette tâche ajoute la robustesse, pas la fréquence.
+
+Contraintes
+- Ne jamais perdre de position capturée pendant une tournée active, même après redémarrage de l'app (persistance réelle, pas seulement en mémoire).
+- Tests : simuler une coupure réseau, vérifier la mise en file puis l'envoi à la reconnexion.
+
+Process
+- Ne fais aucun commit avant "commit".
+- Avant de coder : confirme le mécanisme de stockage local.
+- En fin de tâche : coche `TODO.md` (Phase 3).
+
+Critère d'acceptation
+En coupant la connectivité du téléphone pendant une tournée active puis en la rétablissant, toutes les positions capturées pendant la coupure finissent par arriver côté backend, dans l'ordre, sans perte.
+
+---
+
+## TÂCHE 17 — App Citoyen : auth OTP + enregistrement du domicile
+
+Contexte : projet AutoMbalit, dépôt `autombalit-mobile`. Se référer à `SPEC.md` §5, §7, §10, §11 et `CONVENTIONS.md` avant toute modification.
+
+Branche : `feat/citoyen-auth-enregistrement-domicile`
+
+Constat
+Le flavor citoyen existe en placeholder (Tâche 3). Le backend fournit `/api/auth/token/` et `/api/points-enregistres/` (SPEC.md §7).
+
+Étape 0 — Avant de coder
+- Confirmer si l'écran d'auth OTP peut être partagé avec celui du chauffeur (`lib/common`), le flux Firebase étant identique, ou s'il doit rester distinct par flavor pour des raisons de branding (SPEC.md §10, palettes distinctes par app).
+
+TÂCHE
+1. Auth OTP citoyen (réutiliser le composant partagé confirmé à l'Étape 0 si applicable), échange token Firebase → JWT.
+2. Écran d'enregistrement du domicile : `flutter_map` + recherche d'adresse ou pointage direct sur la carte, création d'un `PointEnregistre` via l'API.
+3. Permettre de nommer le point (ex. "Domicile", cohérent avec `PointEnregistre.nom`).
+4. Ne pas implémenter : notifications FCM (Tâche 18), écran statut du jour (Tâche 19), carte live (Tâche 22).
+
+Contraintes
+- Palette/thème citoyen conforme à `SPEC.md` §10 (vert dominant).
+- `flutter_map` + tuiles OSM uniquement, pas de Google Maps.
+- Tests widget minimaux pour les deux écrans (mock API).
+
+Process
+- Ne fais aucun commit avant "commit".
+- Avant de coder : confirme le partage ou non de l'écran auth avec le flavor chauffeur.
+- En fin de tâche : coche `TODO.md` (Phase 3).
+
+Critère d'acceptation
+Sur le téléphone physique, un citoyen peut s'authentifier par OTP et enregistrer un point (domicile) visible ensuite via l'API backend (`GET /api/points-enregistres/`).
+
+---
+
+## TÂCHE 18 — App Citoyen : réception et affichage des notifications FCM
+
+Contexte : projet AutoMbalit, dépôt `autombalit-mobile`. Se référer à `SPEC.md` §7, §9, §11 avant toute modification.
+
+Branche : `feat/citoyen-notifications-fcm`
+
+Constat
+Le backend envoie déjà des notifications FCM (Tâche 13), mais rien ne les reçoit/affiche côté app citoyen, et aucun `fcm_token` n'est encore transmis au backend depuis l'app.
+
+Étape 0 — Avant de coder
+- Confirmer le point d'intégration pour l'enregistrement du `fcm_token` (endpoint existant ou à compléter côté backend pour mettre à jour `Utilisateur.fcm_token`). Si l'endpoint n'existe pas, le signaler avant de coder — un petit complément backend pourrait être nécessaire en amont, hors périmètre strict de cette tâche mobile.
+
+TÂCHE
+1. Configurer `firebase_messaging` côté Flutter (flavor citoyen), récupérer le token FCM de l'appareil.
+2. Transmettre/mettre à jour ce token auprès du backend selon le mécanisme confirmé à l'Étape 0.
+3. Gérer la réception des notifications en foreground et background (affichage natif Android + gestion du tap pour ouvrir l'app sur l'écran pertinent).
+4. Stocker un historique local des notifications reçues (SPEC.md §11).
+5. Ne pas implémenter : l'écran statut du jour complet (Tâche 19) au-delà de ce qui est nécessaire pour naviguer depuis une notification.
+
+Contraintes
+- Aucune position brute du camion affichée ou stockée côté citoyen — uniquement le contenu de la notification (seuil ETA).
+- Tests : simuler une notification reçue (mock) et vérifier son stockage dans l'historique local.
+
+Process
+- Ne fais aucun commit avant "commit".
+- Avant de coder : confirme le mécanisme de transmission du token FCM, signale si un complément backend est nécessaire.
+- En fin de tâche : coche `TODO.md` (Phase 3).
+
+Critère d'acceptation
+Le token FCM de l'appareil est transmis au backend après connexion ; une notification envoyée depuis le backend (test manuel) est reçue et affichée sur le téléphone physique, foreground et background, et apparaît dans l'historique local.
+
+---
+
+## TÂCHE 19 — App Citoyen : écran statut du jour
+
+Contexte : projet AutoMbalit, dépôt `autombalit-mobile`. Se référer à `SPEC.md` §7, §10, §11 avant toute modification.
+
+Branche : `feat/citoyen-statut-du-jour`
+
+Constat
+Le domicile est enregistré (Tâche 17), mais aucun écran n'affiche le calendrier de collecte ni le dernier passage connu. Le backend fournit `GET /api/zones/{id}/calendrier/` (SPEC.md §7).
+
+Étape 0 — Avant de coder
+- Confirmer la source du "dernier passage connu" : dérivé du `PositionCamion` le plus récent proche de la zone, ou d'un futur endpoint dédié non encore existant côté backend (à vérifier, pourrait manquer — signaler si c'est le cas).
+
+TÂCHE
+1. Écran principal affichant le calendrier de collecte de la zone du domicile enregistré (jours de passage, heure estimée) via l'endpoint calendrier.
+2. Affichage du dernier passage connu selon la source confirmée à l'Étape 0.
+3. Mise en cache locale du calendrier pour un affichage hors-ligne (stratégie déjà actée : "cache local calendrier" côté citoyen).
+4. Code couleur ETA (vert/ambre/rouge) si une notification récente/ETA est disponible, conforme à `SPEC.md` §10 — toujours doublé de texte, jamais la couleur seule.
+5. Ne pas implémenter : la carte live (Tâche 22).
+
+Contraintes
+- Respect de l'accessibilité définie en `SPEC.md` §10 (taille de police, contraste, pas de couleur seule).
+- Tests : affichage correct avec et sans connexion (cache).
+
+Process
+- Ne fais aucun commit avant "commit".
+- Avant de coder : confirme la source du "dernier passage connu", signale si un complément backend est nécessaire.
+- En fin de tâche : coche `TODO.md` (Phase 3).
+
+Critère d'acceptation
+L'écran affiche le calendrier de la zone du domicile même hors connexion (cache), et le dernier passage connu quand disponible.
+
+---
+
+## TÂCHE 20 — App Citoyen : formulaire de signalement
+
+Contexte : projet AutoMbalit, dépôt `autombalit-mobile`. Se référer à `SPEC.md` §3, §7, §9 et `CONVENTIONS.md` avant toute modification.
+
+Branche : `feat/citoyen-signalement`
+
+Constat
+Aucun écran de signalement n'existe. Le backend fournit `POST /api/signalements/` (SPEC.md §7), avec règle anti-abus (un signalement par utilisateur/camion/type/jour, SPEC.md §9).
+
+Étape 0 — Avant de coder
+- Confirmer si le signalement doit être rattaché à un camion précis (si connu) ou seulement à une zone (cas "camion jamais vu") — les deux cas existent dans le modèle `Signalement` (`camion_id`/`zone_id` nullable).
+
+TÂCHE
+1. Formulaire de signalement : choix du type (`pas_notifie`/`pas_passe`/`position_incoherente`/`autre`), commentaire optionnel, rattachement automatique à la zone du domicile et au camion du jour si disponible.
+2. Appel à `POST /api/signalements/`, gestion de l'erreur de rate limiting/anti-abus (message clair si déjà signalé aujourd'hui pour ce type).
+3. Confirmation visuelle claire après envoi réussi.
+4. Ne pas implémenter : le tableau de bord des signalements (Phase 4, web admin).
+
+Contraintes
+- Respect de `CONVENTIONS.md` (icônes + texte, jamais icône seule pour une action critique).
+- Tests : soumission réussie et cas d'erreur anti-abus (mock API).
+
+Process
+- Ne fais aucun commit avant "commit".
+- Avant de coder : confirme le rattachement camion/zone du signalement.
+- En fin de tâche : coche `TODO.md` (Phase 3).
+
+Critère d'acceptation
+Un signalement soumis depuis le téléphone physique est bien créé côté backend ; une tentative de doublon le même jour pour le même type est rejetée avec un message clair côté app.
+
+---
+
+## TÂCHE 21 — Backend : app `realtime` (Django Channels) — consumer WebSocket + diffusion `position.update`
+
+Contexte : projet AutoMbalit, dépôt `autombalit-backend`. Se référer à `SPEC.md` §5, §6 et `DECISIONS.md` avant toute modification.
+
+Branche : `feat/realtime-websocket-position-update`
+
+Constat
+`channels` et `channels_redis` sont dans `requirements.txt` depuis la Tâche 1, mais `CHANNEL_LAYERS`/`ASGI_APPLICATION` n'ont jamais été configurés (écart signalé en Tâche 7, reporté). L'app `realtime` prévue dans `SPEC.md` §5 n'existe pas encore. C'est un prérequis bloquant pour la carte live citoyen (Tâche 22) — cette tâche comble un gap non explicitement séquencé dans `TODO.md` Phase 2/3.
+
+Étape 0 — Avant de coder
+- Confirmer le schéma de groupe à utiliser pour le MVP : `camion_<camion_id>` (probable choix le plus simple, cohérent avec un seul camion pilote) plutôt que `zone_<zone_id>` (`SPEC.md` §6 mentionne les deux comme possibles).
+- Vérifier si le service `backend` dans `docker-compose.yml` doit passer d'un serveur WSGI à un serveur ASGI (uvicorn/daphne) pour servir les WebSockets, et confirmer l'impact.
+
+TÂCHE
+1. Configurer `ASGI_APPLICATION`, `CHANNEL_LAYERS` (`channels_redis`, réutilisant le service `redis` existant).
+2. Adapter le service `backend` dans `docker-compose.yml`/`Dockerfile` pour servir l'application via ASGI si nécessaire.
+3. Créer l'app `realtime` avec un consumer WebSocket gérant la connexion/déconnexion à un groupe `camion_<camion_id>` (authentification JWT du citoyen requise à la connexion).
+4. Brancher la diffusion : dans le service qui traite chaque position (Tâches 9-11), envoyer un événement `position.update` au groupe concerné à chaque position traitée.
+5. Fermeture propre de la connexion WebSocket (pas de fuite de connexion si le client ferme l'app sans déconnexion propre).
+6. Ne pas implémenter : le client Flutter (Tâche 22) — cette tâche est backend uniquement.
+
+Contraintes
+- Le citoyen ne doit recevoir que `camion_id` + `lat`/`lng`/`horodatage` (`SPEC.md` §6), rien d'autre.
+- Aucune connexion WebSocket non authentifiée acceptée.
+- Tests : test du consumer via le test client Channels (connexion, réception d'un événement `position.update` simulé, déconnexion).
+
+Process
+- Ne fais aucun commit avant "commit".
+- Avant de coder : confirme le schéma de groupe et le changement de serveur ASGI éventuel.
+- En fin de tâche : documente dans `GUIDE_DU_DEVELOPPEUR.md` le changement de serveur d'exécution si applicable, ajoute une entrée `DECISIONS.md` sur ce gap comblé, et une case correspondante dans `TODO.md` si absente.
+
+Critère d'acceptation
+Un client WebSocket authentifié connecté au groupe d'un camion reçoit un événement `position.update` en temps réel quand une nouvelle position de ce camion est traitée côté backend ; les tests automatiques du consumer passent.
+
+---
+
+## TÂCHE 22 — App Citoyen : carte live optionnelle
+
+Contexte : projet AutoMbalit, dépôt `autombalit-mobile`. Se référer à `SPEC.md` §6, §11 avant toute modification.
+
+Branche : `feat/citoyen-carte-live`
+
+Constat
+Le backend expose désormais un WebSocket `position.update` (Tâche 21). Rien n'existe côté app citoyen pour l'afficher.
+
+Étape 0 — Avant de coder
+- Confirmer le déclenchement de connexion (uniquement à l'ouverture explicite de l'écran carte, jamais en arrière-plan — `SPEC.md` §6/§11) et la fermeture (à la sortie de l'écran).
+
+TÂCHE
+1. Écran carte live avec `flutter_map`, connexion WebSocket au groupe du camion pertinent (celui desservant la zone du domicile, ou celui du dernier passage) uniquement à l'ouverture de l'écran.
+2. Mise à jour de la position du marqueur camion en temps réel à réception de `position.update`.
+3. Déconnexion automatique et immédiate à la fermeture/sortie de l'écran (pas de connexion persistante en arrière-plan).
+4. Gestion de la reconnexion en cas de coupure réseau pendant que l'écran est ouvert.
+5. Ne pas implémenter : l'historique de trajet affiché sur la carte (hors périmètre, seule la position courante est affichée).
+
+Contraintes
+- Aucune connexion WebSocket tant que l'écran carte n'est pas explicitement ouvert.
+- `flutter_map` + OSM uniquement.
+- Tests : ouverture/fermeture d'écran déclenchant bien connexion/déconnexion (mock WebSocket).
+
+Process
+- Ne fais aucun commit avant "commit".
+- Avant de coder : confirme le déclenchement/fermeture de la connexion WebSocket.
+- En fin de tâche : coche `TODO.md` (Phase 3) — ce qui clôture la Phase 3 telle que listée actuellement.
+
+Critère d'acceptation
+Sur le téléphone physique, ouvrir l'écran carte live affiche la position du camion mise à jour en temps réel pendant une tournée active ; fermer l'écran coupe la connexion WebSocket (vérifiable côté backend, plus de connexion active pour ce client).
+
+*Les tâches suivantes (Phase 4 et suivantes) seront rédigées au fur et à mesure, une fois les tâches précédentes validées.*
