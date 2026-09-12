@@ -17,8 +17,8 @@
 - [x] Implémenter les modèles de données (Societe, Chauffeur, Camion, Zone, Tournee, TourneeZone, CalendrierCollecte, AssignationJournaliere, PositionCamion, Utilisateur, PointEnregistre, Signalement)
 - [x] Migrations + vérification PostGIS fonctionnelle (via `docker compose exec backend`)
 - [x] Endpoints DRF de base : CRUD tournées/zones, auth JWT
-- [ ] Endpoints DRF de base : upload GeoJSON
-- [ ] Validation GeoJSON à l'upload (SRID 4326, type de géométrie, properties requises)
+- [x] Endpoints DRF de base : upload GeoJSON
+- [x] Validation GeoJSON à l'upload (SRID 4326, type de géométrie, properties requises)
 - [ ] Préparer les données OSRM localement (extrait région pilote) et vérifier le service `osrm` dans `docker compose`
 - [ ] Valider que toute la stack (web + base) est exploitable en local via `docker compose up` avant toute mise en production
 

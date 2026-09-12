@@ -209,6 +209,37 @@
 **Vérification :** `docker compose exec backend pytest` → 10 tests passent, aucun warning ; image `backend` reconstruite à partir du `requirements.txt` mis à jour et re-testée à froid (pas seulement `pip install` à chaud dans le conteneur existant) ; `python manage.py check` toujours propre.
 **Statut :** ✅ Résolu
 
+## [CHOIX] Tâche 5 : properties GeoJSON Zone limitées à `nom`, matching par `nom` exact
+
+**Contexte :** `SPEC.md` §3 ne prévoit pas de FK société sur `Zone` (contrairement à ce que suggérait l'énoncé de la Tâche 5, Étape 0, qui évoquait « nom, société associée »). Le modèle `Zone` existant (Tâche 2) n'a que `nom` et `polygone`.
+**Alternatives évaluées :** ajouter un champ `code` (identifiant stable côté SIG) ou une FK `societe` à `Zone`, versus rester sur le schéma minimal déjà en place.
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — properties GeoJSON requises = `nom` uniquement. Correspondance création/mise à jour d'une zone par `nom` exact (`Zone.objects.update_or_create(nom=..., defaults={"polygone": ...})`). Aucun changement de modèle `Zone`.
+**Statut :** 🔵 Choix assumé — à revoir si l'équipe SIG a besoin de renommer une zone sans perdre son historique (le matching par nom casse dans ce cas).
+
+## [CHOIX] Tâche 5 : géométrie Zone limitée à `Polygon` (pas de `MultiPolygon`)
+
+**Contexte :** `Zone.polygone` est un `PolygonField` (Tâche 2). L'énoncé de la Tâche 5 demandait de confirmer `Polygon`/`MultiPolygon`.
+**Décision :** confirmé par l'utilisateur — seul le type `Polygon` est accepté à l'upload ; tout `MultiPolygon` (ou autre type) est rejeté avec un message explicite identifiant la feature en cause. Aucun changement de modèle.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Tâche 5 : validation CRS — absence de `crs` acceptée (WGS84 implicite), rejet seulement si explicitement non-4326
+
+**Contexte :** les contraintes de la tâche imposent le SRID 4326 et prévoient des tests « SRID absent/différent ». Le GeoJSON (RFC 7946) est nativement toujours en WGS84/EPSG:4326 ; le membre `crs` n'est qu'un vestige de l'ancienne spec GeoJSON (2008), optionnel.
+**Décision :** un GeoJSON sans membre `crs` est accepté (SRID 4326 assigné explicitement par le service de validation, cohérent avec la RFC) ; un membre `crs` explicitement présent et pointant vers autre chose que WGS84/CRS84/EPSG:4326 est rejeté. Une géométrie topologiquement invalide (auto-intersection, etc., détectée via `GEOSGeometry.valid`) est également rejetée.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Tâche 5 : import all-or-nothing — validation complète (erreurs accumulées) puis transaction atomique
+
+**Contexte :** stratégie d'import à confirmer en Étape 0 ; le prompt de tâche recommandait all-or-nothing par défaut sauf avis contraire (aucun avis contraire exprimé).
+**Décision :** toutes les features sont validées avant toute écriture en base ; les erreurs de validation sont accumulées et retournées en un seul appel (pas de fail-fast sur la première erreur), pour permettre à l'équipe SIG de corriger tous les problèmes en une seule passe. La persistance des zones validées a lieu ensuite dans une unique transaction atomique (`geo_import/services/zone_import.py`) — un échec base de données annule tout l'import.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Tâche 5 : endpoint d'upload GeoJSON limité aux `Zone` (pas encore `Tournee`)
+
+**Contexte :** `SPEC.md` §7 décrit `POST /api/admin/geojson/upload/` comme couvrant « tournée ou zone », mais le Constat de la Tâche 5 ne porte que sur les zones (« Les zones sont censées provenir de GeoJSON pré-converti par l'équipe SIG »).
+**Décision :** l'endpoint `/api/admin/geojson/upload/` implémenté dans cette tâche ne traite que les `Zone` (`FeatureCollection` de `Polygon`). L'upload du tracé de `Tournee` (`LineString`/`MultiLineString`) n'est pas couvert par cette tâche — à traiter dans une tâche dédiée si besoin, sur ce même endpoint ou un endpoint séparé à trancher à ce moment-là.
+**Statut :** 🔵 Choix assumé
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
