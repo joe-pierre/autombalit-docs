@@ -1,6 +1,15 @@
 # BUGS CORRIGÉS
 
-Aucun bug corrigé à ce jour — le projet est encore au stade de conception, aucun code n'a été implémenté. Cette section sera alimentée à partir de la Phase 1 (fondations backend).
+Voir `DECISIONS.md` (entrées `[RÉSOLU]`) pour l'historique des bugs corrigés au fil des tâches.
+
+# BUGS OUVERTS
+
+## `mqtt_listener` (backend) ne se reconnecte jamais automatiquement à Mosquitto après un redémarrage du broker
+
+**Découvert :** Tâche 16 (`autombalit-mobile`), lors du test manuel de la queue hors-ligne — voir `DECISIONS.md` pour le détail complet.
+**Symptôme :** après un arrêt/redémarrage du broker Mosquitto (`docker compose stop/start mosquitto`), le service `mqtt_listener` reste connecté à son état "déconnecté" (`Déconnecté du broker MQTT : Unspecified error` en boucle dans ses logs) sans jamais retenter la connexion — un `docker compose restart mqtt_listener` manuel est nécessaire pour qu'il recommence à recevoir des positions.
+**Impact :** toute coupure du broker (redémarrage, crash, maintenance) fait perdre silencieusement toutes les positions publiées par les camions tant que `mqtt_listener` n'est pas relancé manuellement — y compris celles republiées avec succès (ack reçu) par la queue hors-ligne côté app chauffeur (Tâche 16), puisque MQTT ne rejoue pas les messages à un abonné absent au moment de la publication.
+**Non corrigé** — hors périmètre de la Tâche 16 (mobile). À traiter dans une tâche dédiée côté `autombalit-backend` (probablement `client.on_disconnect` + logique de reconnexion dans `tracking/clients/mqtt_client.py`, Tâche 9).
 
 # ROADMAP (idées / améliorations futures)
 
