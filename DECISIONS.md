@@ -172,6 +172,43 @@
 **Leçon :** comme pour Django/Python (voir plus bas), figer les versions d'outillage dès le scaffolding initial (`flutter create`) éviterait ce type de dérive silencieuse découverte seulement au moment de builder pour de vrai.
 **Statut :** ✅ Résolu
 
+## [CHOIX] Tâche 4 : serializers/viewsets centralisés dans l'app `api`
+
+**Contexte :** `Zone` et `Tournee` vivent dans l'app `core`, mais `SPEC.md` §5 décrit l'app `api` comme portant « serializers DRF, routers, permissions par rôle ». Deux options possibles : centraliser dans `api`, ou répartir serializers/vues dans l'app métier propriétaire du modèle.
+**Décision :** confirmé par l'utilisateur — tout le code DRF (serializers, viewsets, routers) reste dans l'app `api`, qui importe les modèles de `core`. Les apps métier (`core`, `tracking`, etc.) restent limitées aux modèles/services/selectors/clients. Permission par défaut : `IsAuthenticated` uniquement, pas de granularité par rôle à ce stade (auth Firebase/rôles prévue Tâche 12+).
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Format de réponse JSON standard implémenté au niveau du renderer/exception handler
+
+**Contexte :** `CONVENTIONS.md` §Réponses API impose `{"success", "data", "error"}` pour toutes les réponses DRF, mais ce mécanisme n'existait pas encore — la Tâche 4 est la première à exposer de vrais endpoints DRF.
+**Décision :** implémenté globalement plutôt que par vue, via `api/renderers.py` (`StandardJSONRenderer`, enveloppe toute réponse non-`None`) et `api/exceptions.py` (`standard_exception_handler`, normalise les exceptions DRF en `{"code", "message"}`), branchés dans `REST_FRAMEWORK.DEFAULT_RENDERER_CLASSES`/`EXCEPTION_HANDLER` (`settings.py`). S'applique donc automatiquement à tous les futurs endpoints, y compris `/api/token/` (simplejwt) sans code spécifique à écrire pour chacun.
+**Point de vigilance :** `response.data` (utilisé dans les tests DRF) reste la donnée *avant* enveloppe — seul `response.content`/`response.json()` reflète le format final `{"success","data","error"}`. Les tests de la Tâche 4 utilisent `response.json()` pour cette raison.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Tâche 4 : `TourneeSerializer.zones` en lecture seule, pas de CRUD `TourneeZone` dans cette tâche
+
+**Contexte :** `Tournee.zones` est un many-to-many via `TourneeZone` qui porte un champ obligatoire (`ordre_passage`), non gérable par un simple `PrimaryKeyRelatedField` en écriture sans logique métier additionnelle.
+**Décision :** `zones` exposé en lecture seule (liste des ids) sur `TourneeSerializer` ; la création/modification des associations `TourneeZone` (avec ordre de passage) n'est pas couverte par cette tâche — hors périmètre annoncé (« CRUD zones/tournées ») et pas requise par le critère d'acceptation. À couvrir dans une tâche dédiée si un besoin d'endpoint explicite apparaît.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Tâche 4 : tests via `APITestCase` + création ORM directe, sans `factory_boy`/`pytest-django`
+
+**Contexte :** `CONVENTIONS.md` §Tests prescrit `pytest-django` et `factory_boy`, mais ni l'un ni l'autre n'est encore dans `requirements.txt` (non installés depuis les Tâches 1-2). Le critère d'acceptation de la Tâche 4 demande explicitement des tests « via le client de test DRF ».
+**Décision :** tests écrits avec `rest_framework.test.APITestCase` (compatible `manage.py test`, pas besoin de pytest) et création directe des objets via l'ORM plutôt que des factories, pour rester dans le périmètre de la tâche sans ajouter de nouvelle dépendance non demandée.
+**Statut :** ✅ Résolu — voir entrée « Correctif Tâche 4 : migration vers pytest-django + factory_boy » ci-dessous.
+
+## [RÉSOLU] Correctif Tâche 4 : migration des tests vers pytest-django + factory_boy
+
+**Contexte :** l'écart signalé dans l'entrée précédente (tests `api/tests/*.py` de la Tâche 4 écrits en `APITestCase` + création ORM directe, alors que `CONVENTIONS.md` §Tests impose `pytest-django` + `factory_boy`) a été corrigé par une tâche correctif dédiée, sur la même branche `feat/api-crud-zones-tournees-auth-jwt`.
+**Fix :**
+- Dépendances ajoutées à `requirements.txt` (versions figées via `pip freeze` dans le conteneur `backend`) : `pytest==9.1.1`, `pytest-django==4.14.0`, `factory_boy==3.3.3` (+ transitives `Faker`, `iniconfig`, `packaging`, `pluggy`, `Pygments`).
+- Config pytest : `pytest.ini` à la racine du dépôt (`DJANGO_SETTINGS_MODULE = autombalit_backend.settings`) — pas de `pyproject.toml` créé, le projet n'en avait pas et utilise `requirements.txt` (cohérent avec le choix de la Tâche 1).
+- Factories `factory_boy` centralisées dans `core/tests/factories.py` (app propriétaire des modèles `Zone`/`Tournee`/`Societe`), réutilisables par toute app consommatrice : `UserFactory`, `SocieteFactory`, `ZoneFactory`, `TourneeFactory`.
+- Les trois fichiers de tests (`api/tests/test_auth.py`, `test_zones.py`, `test_tournees.py`) réécrits en fonctions pytest avec `@pytest.mark.django_db`, fixtures partagées dans `api/tests/conftest.py` (`api_client`, `user`, `authenticated_client`), plus aucun `APITestCase`/création ORM directe.
+- `UserFactory.password` implémenté via un hook `@factory.post_generation` explicite (`set_password` + `save()` conditionnel, `skip_postgeneration_save = True`) plutôt que `factory.PostGenerationMethodCall`, pour éviter un warning de dépréciation `factory_boy` (`_after_postgeneration` va cesser de sauvegarder automatiquement après hooks post-génération dans une future version majeure) sans perdre la persistance du mot de passe.
+**Vérification :** `docker compose exec backend pytest` → 10 tests passent, aucun warning ; image `backend` reconstruite à partir du `requirements.txt` mis à jour et re-testée à froid (pas seulement `pip install` à chaud dans le conteneur existant) ; `python manage.py check` toujours propre.
+**Statut :** ✅ Résolu
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).

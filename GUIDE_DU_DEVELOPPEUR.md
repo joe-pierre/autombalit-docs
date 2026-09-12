@@ -391,6 +391,8 @@ docker compose logs -f backend    # suivre les logs d'un service en particulier
 docker compose exec backend python manage.py <commande>   # exécuter une commande Django dans le conteneur
 docker compose exec backend bash  # ouvrir un shell dans le conteneur backend
 docker compose build backend      # reconstruire l'image après modification de requirements.txt
+docker compose exec backend pytest              # lancer la suite de tests (pytest-django + factory_boy, voir CONVENTIONS.md §Tests)
+docker compose exec backend pytest -v chemin/vers/test_xxx.py   # cibler un fichier de test précis, en mode verbeux
 ```
 
 Avec Docker Compose, un seul terminal (en mode `-d` ou détaché) suffit pour faire tourner l'ensemble de la stack locale — backend, base, Redis, Mosquitto, OSRM et le listener MQTT.
