@@ -26,8 +26,8 @@
 
 - [x] Setup broker MQTT (Mosquitto) + authentification par camion + ACL par topic
 - [x] Handler Django : consommation des positions MQTT → écriture `PositionCamion`
-- [ ] Intégration OSRM pour le calcul de distance/temps
-- [ ] Facteur de correction historique par zone (valeur par défaut le temps d'accumuler l'historique)
+- [x] Intégration OSRM pour le calcul de distance/temps
+- [x] Facteur de correction historique par zone (valeur par défaut le temps d'accumuler l'historique)
 - [ ] Logique de seuils (30/20/10/5 min) avec règle anti-spam (une notif/seuil/jour/utilisateur)
 - [ ] Gestion des positions en rafale (ne traiter que la plus récente pour l'ETA/notification)
 - [ ] Intégration Firebase Auth (OTP téléphone) côté backend

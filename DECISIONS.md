@@ -301,6 +301,16 @@
 **Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — date extraite de l'`horodatage` du message, pas `now()` au moment du traitement. Une position appartient à la journée qu'elle décrit ; ce choix traite correctement une rafale envoyée après minuit avec des timestamps de la veille (cf. règle métier sur les rafales, `SPEC.md` §4.6).
 **Statut :** 🔵 Choix assumé
 
+## [CHOIX] Tâche 10 : facteur de correction ETA = vitesse effective par zone (km/h), moyenne mobile, seuil 5 passages
+
+**Contexte :** `SPEC.md` §4.4 impose une valeur par défaut (~10 km/h) tant que l'historique est insuffisant (5-10 passages), sans préciser la formule exacte une fois l'historique suffisant, ni où la stocker — l'historique brut `PositionCamion` est purgé après 24-48h (`SPEC.md` §3), donc le facteur doit vivre dans un modèle persistant séparé plutôt que d'être recalculé depuis les positions brutes à chaque appel.
+**Alternatives évaluées :** (A) vitesse effective par zone en km/h, ETA = distance OSRM / vitesse effective ; (B) multiplicateur appliqué à la durée OSRM brute (facteur dérivé, moins lisible car le défaut SPEC.md est exprimé en km/h, pas en ratio).
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — option A. Modèle `tracking.FacteurCorrectionZone` (`zone` OneToOne, `vitesse_effective_kmh` défaut 10.0, `nombre_observations`). `duree_corrigee_secondes = (distance_osrm_metres / 1000) / vitesse_effective_kmh * 3600`. Tant que `nombre_observations < 5` (seuil confirmé, borne basse de la fourchette `SPEC.md`), la vitesse par défaut (10 km/h) est utilisée à la place de la moyenne stockée, même partielle. Au-delà, mise à jour par moyenne mobile simple : `nouvelle_moyenne = (ancienne_moyenne * n + vitesse_observee) / (n + 1)`, via `tracking/services/facteur_correction.py::enregistrer_observation_zone` (verrouillage `select_for_update` pour éviter une race entre deux mises à jour concurrentes).
+**Point ouvert :** `enregistrer_observation_zone` est implémentée et testée mais n'est appelée par aucun flux automatique à ce stade — détecter qu'un camion a terminé un passage dans une zone et en mesurer la vitesse réelle observée reste à concevoir (Phase 5, `TODO.md` : « Ajustement du facteur de correction par zone à partir des données terrain »), qui devra appeler cette fonction plutôt que d'en réinventer une.
+**Implémentation :** `tracking/clients/osrm_client.py` (`OSRMClient.calculer_itineraire`, encapsule l'appel HTTP `route/v1/driving`, lève `OSRMError` sur timeout/connexion/HTTP/JSON/route introuvable) ; `tracking/services/eta.py` (`calculer_eta`, combine OSRM + vitesse effective, retourne `None` — pas d'exception ni de 500 — si OSRM est indisponible) ; `tracking/selectors/facteur_correction.py` (lecture de la vitesse à utiliser).
+**Vérification :** tests unitaires (mocks `requests`/client OSRM, pas d'appel réseau réel) sur le client, le service ETA et la moyenne mobile ; vérification manuelle de bout en bout contre le vrai service `osrm` du `docker-compose.yml` (route réelle Dakar, calcul ETA avec vitesse par défaut).
+**Statut :** 🔵 Choix assumé — formule à valider avec des données terrain réelles en Phase 5.
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
