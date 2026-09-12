@@ -330,6 +330,33 @@
 **Vérification :** 9 nouveaux tests (`notifications/tests/test_seuils.py`, `tracking/tests/test_positions_selector.py`), mocks sur `calculer_eta` (jamais d'appel OSRM réel en test, conforme à `CONVENTIONS.md` §Tests) : franchissement de seuil unique, franchissement simultané de plusieurs seuils, anti-spam (pas de doublon le même jour), position non-la-plus-récente d'une rafale ignorée (OSRM jamais appelé dans ce cas), ETA indisponible → aucune notification. Suite complète : 59 tests passent.
 **Statut :** ✅ Résolu
 
+## [CHOIX] Tâche 12 : Chauffeur pré-créé par un admin (Django admin), pas d'auto-inscription
+
+**Contexte :** Étape 0 de la Tâche 12 demandait de confirmer le flux d'échange token Firebase → JWT ; restait ouvert comment un nouveau Chauffeur (avec sa `societe`, FK obligatoire) apparaît côté backend avant sa première connexion, aucune interface d'auto-inscription n'existant.
+**Alternatives évaluées :** (A) Chauffeur pré-créé par un admin société (`core.admin`, déjà enregistré) — l'échange Firebase ne fait que retrouver le Chauffeur par téléphone (claim du token) et lui attacher son `firebase_uid` au premier login réussi ; (B) auto-inscription du chauffeur à la première connexion, avec un `societe_id` fourni dans le payload d'échange (suppose une sélection de société côté app, non construite).
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — option A. Un Chauffeur sans `firebase_uid` encore attaché est identifiable par téléphone. Aucun Chauffeur trouvé pour le téléphone du token Firebase → erreur explicite (403, "contactez votre société de collecte"), pas de création automatique.
+**Effet de bord modèle :** `Chauffeur.firebase_uid` passé de `unique=True` (obligatoire) à `unique=True, null=True, blank=True` — plusieurs chauffeurs pré-créés sans `firebase_uid` doivent pouvoir coexister (NULL ≠ NULL pour la contrainte unique en PostgreSQL). Ajout d'un champ `user` (OneToOneField vers `settings.AUTH_USER_MODEL`, nullable) sur `Chauffeur` et `Utilisateur` : un compte technique `django.contrib.auth.User` (sans mot de passe utilisable, seule l'authentification Firebase permet d'en obtenir un JWT) porte le JWT applicatif et est lié 1-1 au modèle métier — cohérent avec le pattern déjà en place depuis la Tâche 4 (`UserFactory`/`force_authenticate` dans les tests DRF), sans introduire de `AUTH_USER_MODEL` personnalisé.
+**Statut :** 🔵 Choix assumé — la distribution des identifiants de connexion au chauffeur pré-créé (comment il apprend qu'un compte existe pour son téléphone) reste hors périmètre, à traiter avec l'écran de validation manuelle (Phase 4).
+
+## [CHOIX] Tâche 12 : ancien endpoint `/api/token/` (username/password, Tâche 4) supprimé
+
+**Contexte :** `/api/token/` avait été ajouté en Tâche 4 comme mécanisme JWT provisoire (username/password, `TokenObtainPairView`) en attendant l'auth Firebase réelle, explicitement documenté comme tel dans `DECISIONS.md`.
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — supprimé (`autombalit_backend/urls.py`, `api/tests/test_auth.py`), remplacé par `/api/auth/token/` (échange Firebase → JWT) et `/api/auth/token/refresh/` (inchangé, `TokenRefreshView` de `simplejwt`), conformes à `SPEC.md` §7. Les deux routes JWT vivent désormais dans `api/urls.py` (avec le reste du routage DRF) plutôt qu'au niveau racine du projet.
+**Statut :** ✅ Résolu
+
+## [CHOIX] Tâche 12 : architecture de l'échange token Firebase → JWT (client/services dédiés)
+
+**Contexte :** SPEC.md §7 définit `POST /api/auth/token/` sans détailler l'implémentation ; CONVENTIONS.md impose un client dédié pour toute intégration externe (ici Firebase Admin) et un service layer pour la logique métier.
+**Décision :**
+- `api/clients/firebase_client.py` (`verifier_id_token`) : encapsule `firebase_admin.auth.verify_id_token`, initialise le SDK Firebase Admin en lazy (jamais au chargement du module, jamais en test — voir `_sans_vrai_sdk_firebase` dans les tests), lève `FirebaseTokenError` si le token est invalide/expiré/révoqué ou sans `phone_number`.
+- `core/selectors/chauffeurs.py::get_chauffeur_par_telephone` + `core/services/chauffeurs.py::attacher_firebase_uid` (lève `ChauffeurInconnuError`/`FirebaseUidConflitError`, `core/services/exceptions.py`).
+- `citizens/services/utilisateurs.py::get_or_create_utilisateur_firebase` (auto-inscription citoyen, lève `TelephoneDejaUtiliseError` si le téléphone est déjà associé à un autre `firebase_uid`).
+- `api/services/auth_exchange.py::echanger_token_firebase` : orchestre les trois ci-dessus selon le `role` (`citoyen`/`chauffeur`) et retrouve/crée le `django.contrib.auth.User` technique lié.
+- `api/permissions.py::EstChauffeurValide` : permission DRF réutilisable pour restreindre un futur endpoint aux chauffeurs `statut_validation == valide` — aucun endpoint chauffeur réel n'existe encore (Phase 3), donc testée directement (`api/tests/test_permissions.py`) plutôt que câblée sur une vue.
+- `api/views.py::FirebaseTokenExchangeView` : `AllowAny`, traduit les exceptions métier en réponses DRF explicites (`AuthenticationFailed` 401 pour un token Firebase invalide, `PermissionDenied` 403 pour un chauffeur inconnu/conflit d'uid, `ValidationError` 400 pour un `role` absent/invalide via le serializer).
+**Vérification :** 79 tests passent (`docker compose exec backend pytest`), `python manage.py check`/`migrate` propres. Mocks systématiques du vérificateur Firebase (jamais de vrai appel SDK/réseau en test, conforme à `CONVENTIONS.md` §Tests).
+**Statut :** ✅ Résolu
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
