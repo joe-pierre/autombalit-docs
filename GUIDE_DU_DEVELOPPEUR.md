@@ -199,6 +199,8 @@ services:
       - "1883:1883"
     volumes:
       - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./docker/mosquitto/passwd:/mosquitto/config/passwd
+      - ./docker/mosquitto/acl:/mosquitto/config/acl
 
   osrm:
     image: osrm/osrm-backend
@@ -239,7 +241,7 @@ volumes:
   db_data:
 ```
 
-Config Mosquitto minimale pour le dev (sans auth, pratique en local) :
+Config Mosquitto pour le dev — authentification et ACL activées dès le local, pas seulement en production (voir §1.4bis juste après) :
 
 ```bash
 mkdir -p docker/mosquitto
@@ -248,10 +250,47 @@ nano docker/mosquitto/mosquitto.conf
 
 ```conf
 listener 1883
-allow_anonymous true
+allow_anonymous false
+password_file /mosquitto/config/passwd
+acl_file /mosquitto/config/acl
 ```
 
-> En production, l'authentification/ACL Mosquitto reste **obligatoire** (voir Phase 4.4) — cette config permissive est réservée au dev local.
+> Avant le tout premier `docker compose up`, créer les fichiers vides attendus par ces deux chemins (sinon Docker monte un dossier à la place d'un fichier) : `touch docker/mosquitto/passwd docker/mosquitto/acl`. Ni l'un ni l'autre n'est commité (`.gitignore`) — voir §1.4bis pour les provisionner.
+
+### 1.4bis — Authentification et ACL Mosquitto (comptes MQTT par camion)
+
+**Schéma de topics** : `camions/{camion_id}/position` (voir `CONVENTIONS.md`), inchangé.
+
+**Credentials liés au camion, pas au chauffeur** : l'assignation chauffeur/camion est journalière (`AssignationJournaliere`), donc un chauffeur n'a pas de "topic à lui" fixe. Chaque **camion** a son propre compte MQTT (`camion_<camion_id>`), autorisé à publier uniquement sur `camions/<camion_id>/position` — jamais à lire quoi que ce soit. Le compte backend (`autombalit_backend`, identifiants dans `.env`) a lui un accès en lecture seule à `camions/#` (nécessaire au futur `mqtt_listener`, Tâche 9). Voir `DECISIONS.md` pour la justification complète de ce choix et son point ouvert (comment le chauffeur récupère les credentials du camion qui lui est assigné le jour même — hors périmètre de la Tâche 8).
+
+**Provisionner le compte backend** (une fois, après avoir renseigné `MQTT_USERNAME`/`MQTT_PASSWORD` dans `.env`) :
+
+```bash
+docker compose up -d mosquitto
+bash scripts/provision_mqtt_backend.sh
+```
+
+**Provisionner un camion** (à chaque ajout d'un camion à la flotte) :
+
+```bash
+bash scripts/provision_mqtt_camion.sh <camion_id>
+# ou avec un mot de passe imposé plutôt que généré :
+bash scripts/provision_mqtt_camion.sh <camion_id> <mot_de_passe>
+```
+
+Le mot de passe (généré ou fourni) n'est affiché qu'une fois par le script, jamais stocké en clair — à transmettre par un canal sécurisé jusqu'à ce qu'un mécanisme de distribution automatisé au chauffeur du jour existe (tâche ultérieure).
+
+**Vérifier l'ACL** (deux camions de test provisionnés automatiquement, nettoyés en fin de script) :
+
+```bash
+bash scripts/test_mqtt_acl.sh
+```
+
+Confirme qu'un camion publie bien sur son propre topic et que sa tentative sur le topic d'un autre camion n'est jamais relayée au backend.
+
+> **Avertissements de permissions au démarrage de Mosquitto** (`world readable permissions`, `owner is not mosquitto`) : attendus et non bloquants en dev local — les fichiers `passwd`/`acl` sont montés depuis l'hôte (UID différent de l'utilisateur `mosquitto` du conteneur), contrairement à la Phase 4.4 (VPS) où ces fichiers appartiennent nativement à root avec des permissions strictes. Ne pas `chmod 600`/`700` ces fichiers en local : le conteneur ne pourrait alors plus les lire (UID hôte ≠ UID conteneur) et Mosquitto s'arrêterait au prochain rechargement.
+>
+> **Recharger la config après provisioning** : un `SIGHUP` fait en réalité terminer le process Mosquitto de cette image plutôt que recharger proprement `passwd`/`acl` à chaud — les deux scripts utilisent donc `docker compose restart mosquitto` (repris automatiquement grâce à `restart: unless-stopped`), plus prévisible qu'un signal.
 
 ### 1.5 Fichier `.env` local
 
@@ -688,8 +727,14 @@ nano /etc/mosquitto/acl
 user autombalit_backend
 topic read camions/#
 
-# Chaque chauffeur ne peut publier que sur son propre topic (motif dynamique géré par plugin ACL applicatif si besoin d'un contrôle par camion_id — sinon un compte MQTT par chauffeur à provisionner via le web admin)
+# Un compte MQTT par camion (pas par chauffeur, voir DECISIONS.md — Tâche 8) : l'assignation
+# chauffeur/camion étant journalière, lier les credentials au camion évite une ACL dynamique.
+# Une ligne par camion, ajoutée par le provisioning (voir ci-dessous) :
+# user camion_<camion_id>
+# topic write camions/<camion_id>/position
 ```
+
+**Provisioning** : mêmes scripts qu'en local (`scripts/provision_mqtt_backend.sh`, `scripts/provision_mqtt_camion.sh`), à adapter en remplaçant `docker compose exec -T mosquitto mosquitto_passwd ...` par un appel direct à `mosquitto_passwd` (binaire installé nativement sur le VPS, pas de conteneur Docker pour Mosquitto en production) et en pointant vers `/etc/mosquitto/passwd`/`/etc/mosquitto/acl`. `systemctl restart mosquitto` remplace `docker compose restart mosquitto`.
 
 > Le certificat SSL n'existe pas encore à cette étape (Phase 4.9) — laisser le bloc `listener 8883` en commentaire jusqu'à l'obtention du certificat, puis décommenter et redémarrer Mosquitto.
 
