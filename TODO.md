@@ -20,7 +20,7 @@
 - [x] Endpoints DRF de base : upload GeoJSON
 - [x] Validation GeoJSON à l'upload (SRID 4326, type de géométrie, properties requises)
 - [x] Préparer les données OSRM localement (extrait région pilote) et vérifier le service `osrm` dans `docker compose`
-- [ ] Valider que toute la stack (web + base) est exploitable en local via `docker compose up` avant toute mise en production
+- [x] Valider que toute la stack (web + base) est exploitable en local via `docker compose up` avant toute mise en production
 
 ## Phase 2 — Cœur temps réel
 

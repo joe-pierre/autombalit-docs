@@ -360,7 +360,18 @@ COPY . .
 docker compose up --build
 ```
 
-> **Attendu à ce stade** : le service `mqtt_listener` va boucler en erreur (`Unknown command: 'run_mqtt_listener'`). C'est normal — cette commande Django n'existe pas encore, elle sera créée lors de la tâche de développement MQTT/ETA (Phase 2, avec Claude Code). En attendant, `docker compose stop mqtt_listener` évite de polluer les logs ; les autres services (`db`, `redis`, `mosquitto`, `osrm`, `backend`) doivent, eux, démarrer sans erreur.
+`db`, `redis`, `mosquitto` et `osrm` exposent chacun un `healthcheck` (`pg_isready`, `redis-cli ping`, test TCP via `nc`, test TCP via `bash -c "</dev/tcp/..."` — ces deux dernières images n'embarquent ni `curl` ni `wget`). `backend` et `mqtt_listener` déclarent `depends_on: condition: service_healthy` sur ces quatre services : ils ne démarrent qu'une fois que `db`/`redis`/`mosquitto`/`osrm` sont effectivement prêts à accepter des connexions, pas seulement une fois leur conteneur lancé — ça évite une race condition au premier démarrage (ex. `backend` qui tenterait de se connecter à PostGIS avant que Postgres accepte des connexions). `backend` a lui-même un `healthcheck` (test TCP sur le port 8000, pas d'endpoint `/health/` dédié à ce stade).
+
+> **Attendu à ce stade** : le service `mqtt_listener` va boucler en erreur (`Unknown command: 'run_mqtt_listener'`), et donc rester en `Restarting` même une fois `db`/`mosquitto` `healthy`. C'est normal — cette commande Django n'existe pas encore, elle sera créée lors de la tâche de développement MQTT/ETA (Phase 2, avec Claude Code). En attendant, `docker compose stop mqtt_listener` évite de polluer les logs ; les autres services (`db`, `redis`, `mosquitto`, `osrm`, `backend`) doivent, eux, démarrer et passer `(healthy)` sans erreur.
+
+**Ordre de vérification en cas de problème au démarrage** :
+1. `docker compose ps` — repérer quel service n'est pas `(healthy)` (ou reste `starting`/`unhealthy`). Ordre de dépendance : `db`, `redis`, `mosquitto`, `osrm` d'abord (aucune dépendance entre eux), puis `backend`/`mqtt_listener` seulement une fois les quatre premiers `healthy`.
+2. `docker compose logs <service>` sur le service en cause, en commençant toujours par la dépendance la plus en amont qui ne serait pas saine (inutile de déboguer `backend` si `db` n'est pas encore `healthy`).
+3. Si un service reste bloqué en `starting` au-delà du nombre de tentatives (`retries` du healthcheck), c'est le signe d'un vrai problème (pas juste une lenteur de démarrage) — vérifier la configuration (`.env`, volumes montés) plutôt que d'augmenter `retries` par réflexe.
+
+> **Note sur les logs `backend`/`mqtt_listener`** : le `Dockerfile` fixe `ENV PYTHONUNBUFFERED=1`. Sans ça, la sortie standard de Django est bufferisée dans un conteneur (pas de TTY détecté) et `docker compose logs` peut sembler figé (seul `Watching for file changes...` s'affiche) alors que le serveur tourne normalement — ce n'était qu'un problème d'affichage des logs, pas un blocage réel.
+
+> **Écart connu, assumé** : `redis`, `channels` et `channels_redis` sont dans `requirements.txt` depuis la Tâche 1, et le service `redis` est bien accessible depuis `backend` (testé via `redis.Redis.from_url(...).ping()`), mais `settings.py` ne déclare encore ni `CHANNEL_LAYERS` ni `ASGI_APPLICATION` — Django n'utilise pas encore Redis. Le câblage de Channels est prévu en Phase 2 (temps réel citoyen, voir `SPEC.md` §6), volontairement non fait dans la Tâche 7 dont le périmètre est l'orchestration Docker Compose, pas l'implémentation applicative.
 
 Dans un autre terminal, exécuter les migrations et créer un superutilisateur :
 

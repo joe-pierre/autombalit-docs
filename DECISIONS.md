@@ -249,6 +249,25 @@
 **Vérification :** `curl "http://localhost:5000/route/v1/driving/-17.4467,14.6928;-17.44,14.70"` retourne une route valide (`"code":"Ok"`) via le service `osrm` du `docker-compose.yml` existant, sans modification nécessaire de ce service (déjà correctement configuré depuis la Tâche 1).
 **Statut :** 🔵 Choix assumé — extrait/profil à réévaluer une fois le quartier pilote choisi et testé en conditions réelles (Phase 5).
 
+## [RÉSOLU] Tâche 7 : healthchecks Docker Compose et `depends_on: condition: service_healthy`
+
+**Contexte :** un premier `docker compose up` (sans healthcheck) a démarré tous les services avec succès sur la machine de dev, mais sans garantie d'ordre réel de disponibilité (`depends_on` par ordre de démarrage seulement) — race condition potentielle sur une machine plus lente ou un premier démarrage PostGIS plus long.
+**Décision :** ajout d'un `healthcheck` sur `db`, `redis`, `mosquitto`, `osrm`, et `depends_on: condition: service_healthy` sur `backend`/`mqtt_listener` pointant vers ces quatre services. Commandes de healthcheck choisies après inspection réelle des outils disponibles dans chaque image (pas d'hypothèse a priori) :
+- `db` (postgis/postgis) : `pg_isready -U autombalit_user -d autombalit_dev` (outil standard déjà présent).
+- `redis` (redis:7-alpine) : `redis-cli ping` (outil standard déjà présent).
+- `mosquitto` (eclipse-mosquitto:2) : pas de `curl`/`wget`, mais `nc` présent → `nc -z -w3 localhost 1883`.
+- `osrm` (osrm/osrm-backend, Debian stretch) : ni `curl`/`wget`/`nc`/`python3`, seul `bash` disponible → test de connexion `bash -c "timeout 3 bash -c '</dev/tcp/127.0.0.1/5000'"`.
+- `backend` (image applicative Python) : pas de `curl`/`wget`/`nc`, `python3` disponible → `python -c "import socket; socket.create_connection(('localhost', 8000), timeout=3)"`. Pas d'endpoint `/health/` créé dans cette tâche (hors périmètre).
+**Vérification :** chaque healthcheck testé manuellement en isolation (`docker compose exec <service> <commande>`) avant d'être déclaré dans `docker-compose.yml`, puis `docker compose up -d` complet confirmant la séquence réelle `Waiting → Healthy` pour `db`/`redis`/`mosquitto`/`osrm` avant le démarrage de `backend`/`mqtt_listener`, et `docker compose ps` confirmant `(healthy)` sur les cinq services fonctionnels (tout sauf `mqtt_listener`, dont l'échec attendu — Tâche 9 — est indépendant des healthchecks).
+**Effet de bord corrigé :** ajout de `ENV PYTHONUNBUFFERED=1` dans le `Dockerfile` — sans cette variable, les logs Django n'apparaissaient pas en temps réel dans `docker compose logs` (bufferisés faute de TTY dans le conteneur), ce qui aurait rendu le futur débogage du `mqtt_listener` (Tâche 9) plus difficile.
+**Statut :** ✅ Résolu
+
+## [CHOIX] Tâche 7 : câblage Django ↔ Redis (Channels) volontairement non fait
+
+**Contexte :** `redis`, `channels`, `channels_redis` sont dans `requirements.txt` depuis la Tâche 1, et le service `redis` est bien accessible en réseau depuis `backend` (`redis.Redis.from_url(...).ping()` → `True`, vérifié en conteneur), mais `settings.py` ne déclare ni `CHANNEL_LAYERS` ni `ASGI_APPLICATION`.
+**Décision :** ne pas câbler Channels dans cette tâche — le périmètre de la Tâche 7 est l'orchestration Docker Compose (healthchecks, ordre de démarrage), pas l'implémentation applicative du temps réel citoyen (prévue en Phase 2, `SPEC.md` §6). "Redis accessible" (validé ici) est distinct de "Redis utilisé par Django" (à faire plus tard).
+**Statut :** 🔵 Choix assumé — à lever lors de la tâche dédiée à `realtime`/Channels (Phase 2).
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
