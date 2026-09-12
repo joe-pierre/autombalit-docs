@@ -28,8 +28,8 @@
 - [x] Handler Django : consommation des positions MQTT → écriture `PositionCamion`
 - [x] Intégration OSRM pour le calcul de distance/temps
 - [x] Facteur de correction historique par zone (valeur par défaut le temps d'accumuler l'historique)
-- [ ] Logique de seuils (30/20/10/5 min) avec règle anti-spam (une notif/seuil/jour/utilisateur)
-- [ ] Gestion des positions en rafale (ne traiter que la plus récente pour l'ETA/notification)
+- [x] Logique de seuils (30/20/10/5 min) avec règle anti-spam (une notif/seuil/jour/utilisateur)
+- [x] Gestion des positions en rafale (ne traiter que la plus récente pour l'ETA/notification)
 - [ ] Intégration Firebase Auth (OTP téléphone) côté backend
 - [ ] Intégration FCM (envoi de notifications)
 

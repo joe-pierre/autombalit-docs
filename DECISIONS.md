@@ -311,6 +311,25 @@
 **Vérification :** tests unitaires (mocks `requests`/client OSRM, pas d'appel réseau réel) sur le client, le service ETA et la moyenne mobile ; vérification manuelle de bout en bout contre le vrai service `osrm` du `docker-compose.yml` (route réelle Dakar, calcul ETA avec vitesse par défaut).
 **Statut :** 🔵 Choix assumé — formule à valider avec des données terrain réelles en Phase 5.
 
+## [CHOIX] Tâche 11 : modèle anti-spam `SeuilNotifie` (camion + date séparés, pas de FK assignation)
+
+**Contexte :** Étape 0 de la Tâche 11 demandait de confirmer le modèle de suivi anti-spam des notifications de seuil, deux options possibles : FK `AssignationJournaliere` (encapsule déjà camion+date) vs champs `camion`/`date` séparés.
+**Alternatives évaluées :** (A) `camion` (FK) + `date` séparés, contrainte unique `(utilisateur, camion, date, seuil_minutes)` ; (B) FK `assignation`, contrainte unique `(utilisateur, assignation, seuil_minutes)`, plus DRY mais couplée au cycle de vie de l'assignation.
+**Décision :** confirmé par l'utilisateur (`AskUserQuestion`, avant de coder) — option A. `notifications.SeuilNotifie (utilisateur FK, camion FK, date, seuil_minutes, notifie_le)`, contrainte unique sur les quatre premiers champs. Reste valable même si l'`AssignationJournaliere` du jour est modifiée après coup.
+**Statut :** 🔵 Choix assumé
+
+## [CHOIX] Tâche 11 : logique de seuils dans `notifications`, câblée depuis le listener MQTT
+
+**Contexte :** le calcul ETA (Tâche 10) existe, mais aucun déclenchement de notification. `SPEC.md` §5 place la « logique de seuils » dans l'app `notifications`, cohérent avec le modèle `SeuilNotifie` ci-dessus.
+**Décision :**
+- `tracking/selectors/positions.py::est_la_plus_recente` : vérifie qu'aucune position plus récente n'existe déjà pour le camion (SPEC.md §4.6) — seule la plus récente d'une rafale déclenche le calcul, les autres restent persistées pour l'historique (déjà fait Tâche 9).
+- `notifications/selectors/utilisateurs_concernes.py::get_points_enregistres_dans_zones` : lecture des `PointEnregistre` dont la zone est couverte par la tournée de l'assignation active.
+- `notifications/services/seuils.py::evaluer_seuils_pour_position` : pour chaque utilisateur concerné, calcule l'ETA (réutilise `tracking.services.eta.calculer_eta`, dégradation propre si OSRM indisponible) et crée un `SeuilNotifie` (via `get_or_create`, course géré par la contrainte unique + gestion Django de l'`IntegrityError`, SPEC.md §13) pour chaque seuil ≤ ETA courant non encore notifié aujourd'hui. Si plusieurs seuils sont franchis d'un coup (ETA ayant chuté brutalement entre deux positions), tous les seuils non notifiés sont déclenchés en un seul appel plutôt qu'un seul à la fois — pas de suivi de l'ETA précédente, uniquement de l'état « déjà notifié » par seuil.
+- `notifications/services/dispatch.py::notifier_seuil_franchi` : point d'extension explicite vers l'envoi FCM (Tâche 13), injecté en paramètre optionnel de `evaluer_seuils_pour_position` (même pattern DI que `osrm_client` dans `calculer_eta`) — se limite à un `logger.info` pour l'instant.
+- Câblage : `tracking/management/commands/run_mqtt_listener.py` appelle désormais `ingest_position` puis, si une position a été créée, `evaluer_seuils_pour_position` — toujours une commande minimale, aucune logique métier propre (celle-ci reste dans les services dédiés, conforme à `CONVENTIONS.md`).
+**Vérification :** 9 nouveaux tests (`notifications/tests/test_seuils.py`, `tracking/tests/test_positions_selector.py`), mocks sur `calculer_eta` (jamais d'appel OSRM réel en test, conforme à `CONVENTIONS.md` §Tests) : franchissement de seuil unique, franchissement simultané de plusieurs seuils, anti-spam (pas de doublon le même jour), position non-la-plus-récente d'une rafale ignorée (OSRM jamais appelé dans ce cas), ETA indisponible → aucune notification. Suite complète : 59 tests passent.
+**Statut :** ✅ Résolu
+
 ## [CHOIX] Gouvernance de démarrage : scénario C (portage solo)
 
 **Contexte :** trois scénarios de portage possibles (mairie, société privée, plateforme indépendante).
