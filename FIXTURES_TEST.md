@@ -33,6 +33,20 @@ Nécessite que le chauffeur ait déjà été créé par la commande précédente
 
 Options : `--immatriculation`, `--nom-zone`, `--nom-tournee`, `--nom-societe`.
 
+## 2 bis. Relancer un cycle start/stop sans repartir de zéro
+
+`seed_tournee_test` (étape 2) réinitialise déjà le `statut` au passage, mais recrée/relit aussi `Societe`/`Camion`/`Zone`/`Tournee` et exige `--telephone-chauffeur`. Pour un aller-retour rapide pendant un test manuel sur téléphone (juste remettre l'assignation du jour à `planifiee` entre deux cycles start/stop), utiliser plutôt :
+
+```bash
+docker compose exec backend python manage.py reset_tournee_test
+```
+
+- Sans argument — cible toujours le jeu de test par défaut (chauffeur `+221771234567`, camion `TEST-001`).
+- Affiche l'ancien et le nouveau statut (`'terminee' → 'planifiee'`), ou `« déjà au statut 'planifiee' — rien à faire »` si un reset était déjà fait (idempotent).
+- Si aucune `AssignationJournaliere` de test n'existe pour aujourd'hui, l'indique clairement (et rappelle de lancer `seed_tournee_test` d'abord) plutôt que de lever une erreur.
+- Ne touche qu'au `statut` : les `PositionCamion` déjà enregistrées lors d'un cycle précédent ne sont pas supprimées. Sans risque de cohérence pour autant — le dernier passage par zone (`get_dernier_passage_zone`) se recalcule sur l'historique brut des positions sans dépendre du statut de l'assignation, et il n'existe pas de modèle d'historique de tournées séparé : `AssignationJournaliere` (une seule ligne par camion/jour) est déjà l'enregistrement du jour. Plusieurs cycles start/stop le même jour s'accumulent donc sans incohérence.
+- Point de vigilance hors périmètre de cette commande : l'anti-spam des notifications de seuil ETA (`SeuilNotifie`) est ancré sur la date — un seuil déjà notifié lors d'un premier cycle ne renotifiera pas lors d'un second cycle le même jour (il faudrait vider `SeuilNotifie` du jour pour retester spécifiquement les notifications plusieurs fois).
+
 ## 3. Polygone réel pour la Zone de test (test terrain Tâche 19, écran statut du jour côté citoyen)
 
 Le polygone créé par `seed_tournee_test` (étape 2) est un rectangle factice sans contour géographique réel — insuffisant pour tester le rattachement domicile → zone avec un vrai point du monde réel (ex. domicile enregistré depuis l'app citoyen, Tâche 17). Remplace la géométrie de la `Zone` de test par un polygone réel, sans changer son nom/id (donc sans casser la `Tournee`/`TourneeZone` déjà liées) :
