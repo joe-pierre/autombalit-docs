@@ -44,7 +44,7 @@
 - [x] App Citoyen : réception et affichage des notifications FCM
 - [x] App Citoyen : écran statut du jour (calendrier + dernier passage connu, cache local)
 - [ ] App Citoyen : carte live optionnelle (WebSocket, à la demande)
-- [ ] App Citoyen : formulaire de signalement
+- [x] App Citoyen : formulaire de signalement
 
 ## Phase 4 — Web admin
 

@@ -640,3 +640,42 @@
 - `python manage.py makemigrations --check --dry-run` propre (aucun changement de modèle) ; suite complète (`pytest`) : 143 tests toujours au vert.
 **Documentation :** procédure consignée dans `autombalit-docs/FIXTURES_TEST.md` (§3), à la suite des deux commandes de seed existantes.
 **Statut :** ✅ Résolu — Zone de test mise à jour avec un polygone réel, domicile de test rattaché ; commit en attente d'accord (`autombalit-backend`). Prêt pour un nouveau test sur téléphone physique de l'écran statut du jour (Tâche 19), une fois `adb reverse tcp:8000 tcp:8000` relancé (voir l'entrée précédente).
+
+## [RÉSOLU] Complément backend Tâche 20 : `POST /api/signalements/`
+
+**Contexte :** l'Étape 0 de la Tâche 20 (`autombalit-mobile`) devait confirmer le rattachement camion/zone du signalement. Vérification du code réel avant de coder côté Flutter (pattern déjà anticipé par les Tâches 17/18/19) : le modèle `Signalement` existe (`citizens/models.py`, avec factory de test), mais aucun serializer/viewset/route ne l'exposait dans `api/` — l'endpoint cité par le Constat de la tâche (`SPEC.md` §7) n'existait pas. Signalé à l'utilisateur avant de coder (`AskUserQuestion`, deux questions : ajout du complément backend, règle de rattachement automatique du camion) — les deux options recommandées ont été confirmées. Sur une branche dédiée (`feat/citoyen-endpoint-signalements`, `autombalit-backend`).
+
+**Décision (endpoint) :** `SignalementSerializer` (`api/serializers.py`) expose `type`/`commentaire`/`camion`/`zone` en écriture (`camion`/`zone` nullable, `PrimaryKeyRelatedField` standard généré par `ModelSerializer`) et `id`/`horodatage` en lecture seule. `SignalementCreateView` (`generics.CreateAPIView`, `permission_classes=[EstCitoyen]`) sur `POST /api/signalements/` — pas de GET/liste (réservé au tableau de bord admin, Phase 4, hors périmètre). La logique métier (création + anti-abus) vit dans `citizens/services/signalements.py::creer_signalement`, pas dans la vue (CONVENTIONS.md §Architecture).
+
+**Décision (anti-abus, SPEC.md §9) :** la règle « un signalement par utilisateur/camion/type/jour » suppose un camion connu, or `camion` est nullable (cas « camion jamais vu », Étape 0 de la tâche). Interprétation retenue : dédoublonnage par `(utilisateur, type, jour)` **et** `camion` quand il est fourni, sinon par `(utilisateur, type, jour, zone)` en repli — `camion` reste la clé privilégiée dès qu'il est connu. Vérification en base avant écriture (pas de contrainte `unique_together` ajoutée au modèle — fenêtre de course théorique non traitée, cohérente avec le fait que ce cas n'est pas listé dans les race conditions de `SPEC.md` §13 ; à revoir si constaté en usage réel).
+
+**Décision (code d'erreur 409) :** `CONVENTIONS.md` §Réponses API prévoit un code 409 pour les conflits, mais `api/exceptions.py` n'avait jusqu'ici aucune classe pour ce cas (seuls 400/401/403/404/405/429 étaient mappés). Ajout de `ConflictError` (`APIException`, `status_code=409`) et de l'entrée `CONFLICT` dans `_ERROR_CODES` — réutilisable par toute future règle métier nécessitant un 409.
+
+**Non fait dans cette tâche** (hors périmètre annoncé) : rate limiting DRF explicite sur l'endpoint (`CONVENTIONS.md` §Sécurité en parle pour « signalements, création de compte », mais aucun throttling n'existe nulle part ailleurs dans le projet à ce jour) — à traiter dans une tâche dédiée si besoin, pas ajouté ici pour ne pas introduire une dépendance/config non demandée par le Constat de la Tâche 20.
+
+**Vérification :** `docker compose exec backend pytest` → 157 tests passent (7 nouveaux tests service `citizens/tests/test_signalements.py`, 7 nouveaux tests API `api/tests/test_signalements.py`, dont le cas 409 avec message clair) ; `python manage.py check` propre.
+
+**Statut :** ✅ Résolu (code + tests) — commit en attente d'accord (`autombalit-backend`). Débloque la Tâche 20 côté `autombalit-mobile`.
+
+## [RÉSOLU] Tâche 20 : app Citoyen — formulaire de signalement
+
+**Contexte :** dernière brique citoyen avant la carte live (Tâche 22). S'appuie sur le complément backend ci-dessus.
+
+**Décision (rattachement automatique, Étape 0) :** zone toujours prise depuis `StatutDuJourProvider.domicile?.zoneId` (déjà chargé, Tâche 19) ; camion pris depuis `StatutDuJourProvider.dernierPassage` **seulement si** son `horodatage` tombe aujourd'hui (`SignalementProvider._camionDuJour`) — un dernier passage d'un jour précédent ne doit pas être présenté à tort comme « le camion du jour ». Nécessite un nouveau champ `DernierPassage.camionId` (le backend l'exposait déjà via `GET /zones/{id}/dernier-passage/`, Tâche 19, mais seul `camionImmatriculation` était lu côté Flutter jusqu'ici).
+
+**Fichiers ajoutés (`autombalit-mobile`)** :
+- `citizen/models/type_signalement.dart` : enum `TypeSignalement` (4 valeurs, alignées sur `Signalement.TYPE_CHOICES`), avec `valeurApi` (backend) et `libelle` (affichage) — pas d'import Flutter (modèle pur Dart, cohérent avec `DernierPassage`/`NotificationRecue`) ; les icônes par type restent dans l'écran.
+- `citizen/repositories/signalements_repository.dart` : appel réseau `POST /signalements/`, aucune logique métier.
+- `citizen/providers/signalement_provider.dart` (`SignalementProvider`) : état du formulaire (type sélectionné, commentaire, chargement, succès, erreur) + règle de rattachement camion ci-dessus. `erreur` réutilise directement `ApiException.message` (le backend renvoie déjà un message clair pour le cas anti-abus, pas de reformulation nécessaire côté app).
+- `citizen/screens/signalement_screen.dart` : formulaire (icône + texte pour chaque type, jamais icône seule — `CONVENTIONS.md`/`SPEC.md` §10, qui cite explicitement « Signaler un problème » comme action critique), commentaire optionnel, confirmation visuelle dédiée (`_ConfirmationEnvoi`, remplace le formulaire) après envoi réussi.
+- Entrée d'accès ajoutée à `statut_du_jour_screen.dart` : bouton `OutlinedButton.icon` labellisé « Signaler un problème » (pas une icône seule dans l'`AppBar`, contrairement au bouton notifications déjà existant — ce dernier n'est pas l'action critique visée par `SPEC.md` §10).
+
+**Bug trouvé et corrigé pendant les tests (avant de considérer la tâche terminée)** : l'appel initial à `SignalementProvider.reinitialiser()` depuis `initState` de `SignalementScreen` (pour repartir d'un état propre à chaque ouverture, `SignalementProvider` étant partagé pour toute la session) faisait planter le premier test widget (`setState()/markNeedsBuild() called during build`) — `notifyListeners()` appelé synchrones pendant la construction initiale du widget. Corrigé en différant l'appel via `WidgetsBinding.instance.addPostFrameCallback` (+ garde `mounted`), même pattern déjà utilisé dans `citizen_app.dart` (`_CitizenGateState.initState`) pour la même raison.
+
+**Vérification :**
+- `flutter test` : 79 tests passent (dont 7 nouveaux `test/citizen/signalement_provider_test.dart` — envoi réussi, type/zone transmis, rattachement camion conditionné à la date du dernier passage, erreur 409 exposée telle quelle, `reinitialiser()` — et 3 nouveaux `test/citizen/signalement_screen_test.dart`). `flutter analyze` propre.
+- Testé de bout en bout sur le téléphone physique (Samsung, `adb reverse tcp:8000 tcp:8000`, compte citoyen de test déjà enregistré à Ouakam) : soumission d'un signalement « Le camion n'est pas passé » → confirmation visuelle affichée, ligne créée en base (`camion=None` car le dernier passage connu datait de la veille, `zone=Zone Test`) ; une seconde soumission du même type le même jour est rejetée avec le message anti-abus affiché en rouge dans le formulaire (409 `CONFLICT`). Signalement de test supprimé après vérification.
+
+**Non fait dans cette tâche** (hors périmètre annoncé) : tableau de bord admin des signalements (Phase 4, web admin).
+
+**Statut :** ✅ Résolu (code + tests + vérification terrain) — commit en attente d'accord (`autombalit-backend` et `autombalit-mobile`, deux commits séparés).
