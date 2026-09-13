@@ -32,6 +32,7 @@
 - [x] Gestion des positions en rafale (ne traiter que la plus récente pour l'ETA/notification)
 - [x] Intégration Firebase Auth (OTP téléphone) côté backend
 - [x] Intégration FCM (envoi de notifications)
+- [x] App `realtime` (Django Channels) : consumer WebSocket authentifié + diffusion `position.update` par groupe camion (gap identifié Tâche 7, comblé Tâche 21)
 
 ## Phase 3 — Apps mobiles (Flutter)
 

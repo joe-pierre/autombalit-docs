@@ -410,7 +410,7 @@ docker compose up --build
 
 > **Note sur les logs `backend`/`mqtt_listener`** : le `Dockerfile` fixe `ENV PYTHONUNBUFFERED=1`. Sans ça, la sortie standard de Django est bufferisée dans un conteneur (pas de TTY détecté) et `docker compose logs` peut sembler figé (seul `Watching for file changes...` s'affiche) alors que le serveur tourne normalement — ce n'était qu'un problème d'affichage des logs, pas un blocage réel.
 
-> **Écart connu, assumé** : `redis`, `channels` et `channels_redis` sont dans `requirements.txt` depuis la Tâche 1, et le service `redis` est bien accessible depuis `backend` (testé via `redis.Redis.from_url(...).ping()`), mais `settings.py` ne déclare encore ni `CHANNEL_LAYERS` ni `ASGI_APPLICATION` — Django n'utilise pas encore Redis. Le câblage de Channels est prévu en Phase 2 (temps réel citoyen, voir `SPEC.md` §6), volontairement non fait dans la Tâche 7 dont le périmètre est l'orchestration Docker Compose, pas l'implémentation applicative.
+> **Écart comblé (Tâche 21)** : `CHANNEL_LAYERS`/`ASGI_APPLICATION` sont désormais configurés (`redis`, `channels` et `channels_redis` étaient dans `requirements.txt` depuis la Tâche 1, mais non câblés — voir `DECISIONS.md`). `daphne` a été ajouté en tête d'`INSTALLED_APPS` : Channels remplace alors `manage.py runserver` par une version ASGI-aware qui sert aussi les WebSockets, sans changement du service `backend` dans `docker-compose.yml` ni perte de l'autoreload en dev local (les logs affichent désormais `Starting ASGI/Daphne version ... development server` au lieu de `Starting development server`). En production, Daphne reste lancé explicitement via Supervisor (Phase 6), indépendamment de ce mécanisme de dev.
 
 Dans un autre terminal, exécuter les migrations et créer un superutilisateur :
 
@@ -433,6 +433,37 @@ docker compose exec mosquitto mosquitto_pub -h localhost -t "camions/test123/pos
 ```
 
 Le message doit apparaître côté `mosquitto_sub`, puis dans les logs du service `mqtt_listener` (`docker compose logs -f mqtt_listener`).
+
+### 1.9bis Tester le flux WebSocket carte live (Tâche 21)
+
+Le consumer `realtime.consumers.PositionConsumer` exige un JWT applicatif en query string (`?token=...`), une connexion WebSocket ne pouvant pas porter d'en-tête `Authorization` personnalisé au moment du handshake — un chauffeur authentifié (pas de lien `Utilisateur`) est refusé, tout comme un token absent/invalide. Sans client Flutter encore disponible (Tâche 22), le vérifier manuellement nécessite un client WebSocket générique (aucun n'est une dépendance du projet — `pip install websockets` ponctuellement dans le conteneur suffit, à ne pas ajouter à `requirements.txt`) :
+
+```bash
+# 1. Obtenir un JWT pour un citoyen de test existant (id=4 dans l'exemple)
+docker compose exec backend python manage.py shell -c "
+from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.tokens import AccessToken
+print(str(AccessToken.for_user(get_user_model().objects.get(pk=4))))
+"
+
+# 2. Se connecter au groupe du camion ciblé (id=4 dans l'exemple)
+docker compose exec backend python -c "
+import asyncio, websockets
+async def main():
+    async with websockets.connect('ws://localhost:8000/ws/camions/4/?token=<JWT>') as ws:
+        print(await ws.recv())
+asyncio.run(main())
+"
+
+# 3. Dans un autre terminal, publier une position avec les identifiants MQTT du camion
+# (voir §1.4bis — pas ceux du compte backend, lecture seule) pour déclencher la diffusion
+docker compose exec mosquitto mosquitto_pub -h localhost -u camion_4 -P <mot_de_passe_camion> \
+  -t "camions/4/position" -m '{"lat": 14.7357, "lng": -17.49, "horodatage": "2026-09-13T01:24:06Z"}'
+```
+
+Le client WebSocket doit recevoir `{"camion_id": 4, "lat": ..., "lng": ..., "horodatage": ...}` peu après la publication MQTT.
+
+> **Piège rencontré et corrigé (Tâche 21)** : `redis-py` 8.x a changé son défaut `socket_timeout` (`None` → 5s), qui entre en collision avec le `BRPOP` interne de `channels_redis` (`brpop_timeout = 5`) — une connexion WebSocket ouverte plus de quelques secondes sans nouvel événement plantait (`redis.exceptions.TimeoutError`, fermeture code 1011). Fix : `CHANNEL_LAYERS['default']['CONFIG']['hosts']` passe désormais `{'address': ..., 'socket_timeout': None}` plutôt qu'une simple URL (voir `settings.py`, commentaire détaillé, et `DECISIONS.md`).
 
 ### 1.10 Tester OSRM
 
