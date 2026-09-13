@@ -757,4 +757,173 @@ Process
 Critère d'acceptation
 Sur le téléphone physique, ouvrir l'écran carte live affiche la position du camion mise à jour en temps réel pendant une tournée active ; fermer l'écran coupe la connexion WebSocket (vérifiable côté backend, plus de connexion active pour ce client).
 
-*Les tâches suivantes (Phase 4 et suivantes) seront rédigées au fur et à mesure, une fois les tâches précédentes validées.*
+---
+
+## TÂCHE 23 — Décision + socle web admin
+
+Contexte : projet AutoMbalit, dépôt `autombalit-backend`. Se référer à `SPEC.md` §5, §8, `CONVENTIONS.md` (§Sécurité, §Partials/Frontend Web Admin) et `DECISIONS.md` avant toute modification.
+
+Branche : `feat/web-admin-socle`
+
+Constat
+Aucune interface web admin n'existe. `CONVENTIONS.md` laisse ouvert le choix Django templates classiques vs templates + htmx, à trancher en Phase 4 et consigner dans `DECISIONS.md` avant implémentation. Le style CSS est en revanche déjà tranché : **Tailwind CSS**, via le binaire CLI standalone (pas de dépendance Node/npm obligatoire, cohérent avec la contrainte budget zéro/self-hostable du projet — aucun autre composant du projet ne dépend de Node). Aucun rôle "admin société"/"super admin" n'existe encore au niveau des permissions (seuls `citoyen`/`chauffeur` existent depuis la Tâche 12).
+
+Étape 0 — Avant de coder
+- Trancher et documenter le choix templates classiques vs templates + htmx (proposer une recommandation justifiée — probable : htmx pour l'interactivité de la carte Leaflet et des listes filtrables des tâches suivantes, sans architecture SPA lourde).
+- Proposer le nom/emplacement de l'app Django dédiée (ex. `web_admin`), cohérent avec la liste d'apps de `SPEC.md` §5.
+- Proposer le modèle de permission "admin société" / "super admin" : champ/rôle sur le `User` technique déjà lié 1-1 à `Chauffeur`/`Utilisateur` (Tâche 12), ou nouveau modèle dédié — à confirmer avant de coder.
+
+TÂCHE
+1. Créer l'app web admin dédiée, avec un template de base (`base.html`) et une structure de partials par section (upload GeoJSON, calendriers, validation chauffeurs, signalements — un partial par section, aucune logique métier dans les templates, cohérent avec `CONVENTIONS.md`).
+2. Intégrer Tailwind CSS via le binaire CLI standalone (pas de `package.json`/Node requis), avec un pipeline de build documenté dans `GUIDE_DU_DEVELOPPEUR.md`.
+3. Implémenter l'authentification admin (vue de connexion dédiée, séparée de l'auth Firebase OTP citoyen/chauffeur — un admin utilise email/mot de passe classique Django, cohérent avec `SPEC.md` §11 "Connexion admin société").
+4. Implémenter le modèle de permission confirmé à l'Étape 0 : un "admin société" ne voit/gère que les données de sa société, un "super admin" voit tout — appliqué de façon réutilisable (mixin/decorator) pour toutes les vues web admin à venir, et cohérent avec la règle `CONVENTIONS.md` sur `/api/admin/...`.
+5. Ne pas implémenter : les fonctionnalités métier elles-mêmes (upload GeoJSON, calendriers, validation chauffeurs, signalements) — uniquement le socle. Pages de ces sections en placeholder simple ("à venir").
+
+Contraintes
+- Pas de dépendance à un SDK cartographique payant (Leaflet + OSM, cohérent avec le reste du projet) — pas encore utilisé dans cette tâche, mais à garder en tête pour la Tâche 25.
+- Respect strict de l'architecture en couches (`CONVENTIONS.md`) : vues fines, logique dans des services dédiés dès qu'elle dépasse une simple requête.
+- Tests : accès refusé sans authentification, accès refusé à un rôle non autorisé, accès correct par rôle.
+
+Process
+- Ne fais aucun commit avant que je te dise explicitement "commit".
+- Avant de coder : confirme le choix templates vs htmx, le nom de l'app, et le modèle de permission.
+- En fin de tâche : coche `TODO.md` (Phase 4, "trancher le choix frontend"), documente les décisions (templates/htmx, Tailwind, modèle de permission) dans `DECISIONS.md`.
+
+Critère d'acceptation
+Un compte admin société peut se connecter et accède à un tableau de bord de base (liens vers les sections à venir) ; un compte citoyen/chauffeur ne peut pas accéder à cette interface ; un admin société d'une autre société ne voit pas les données d'une société qui n'est pas la sienne (vérifiable dès qu'une première donnée scoped existera, sinon test de principe sur le mixin de permission).
+
+---
+
+## TÂCHE 24 — Validation des comptes chauffeurs (web admin)
+
+Contexte : projet AutoMbalit, dépôt `autombalit-backend`. Se référer à `SPEC.md` §3, §9, §11 et `DECISIONS.md` avant toute modification.
+
+Branche : `feat/web-admin-validation-chauffeurs`
+
+Constat
+Le champ `Chauffeur.statut_validation` (`en_attente`/`valide`/`rejete`) existe depuis la Tâche 2, mais aucune interface ne permet de le faire évoluer — jusqu'ici uniquement fait manuellement en base via des commandes de test (`reset_tournee_test` et fixtures). C'est le seul point réellement bloquant pour un usage terrain sans intervention manuelle en base de données.
+
+Étape 0 — Avant de coder
+- Vérifie si la distribution des credentials MQTT au chauffeur nouvellement validé est déjà entièrement gérée côté backend (Tâche 8/15 : credentials exposés via `/api/tournees/du-jour/` ou `/start/`) — si un point reste ouvert à ce sujet, signale-le avant de continuer, sans le traiter dans cette tâche si ça sort du périmètre "validation".
+
+TÂCHE
+1. Liste des chauffeurs `en_attente` pour la société de l'admin connecté (toutes sociétés si super admin), avec les informations utiles à la décision (téléphone, date de création de compte).
+2. Actions "Valider" / "Rejeter" sur chaque chauffeur, mettant à jour `statut_validation`.
+3. Vue liste secondaire des chauffeurs déjà validés/rejetés (historique, pas d'action dessus dans cette tâche).
+4. Ne pas implémenter : la création manuelle d'un chauffeur depuis le web admin (un chauffeur crée son compte via l'app avec Firebase Auth, cf. Tâche 12) — cette tâche ne fait que faire évoluer un statut existant.
+
+Contraintes
+- Un admin société ne peut valider/rejeter que les chauffeurs de sa propre société (`societe` FK) — un super admin peut agir sur tous.
+- Toute action de validation/rejet doit être auditable a minima (log applicatif, pas nécessairement un modèle d'historique dédié dans cette tâche — à toi de juger si c'est nécessaire, sinon le signaler).
+- Tests : validation/rejet appliqués correctement, admin société bloqué sur les chauffeurs d'une autre société.
+
+Process
+- Ne fais aucun commit avant que je te dise explicitement "commit".
+- Avant de coder : confirme le résultat de la vérification de l'Étape 0.
+- En fin de tâche : coche `TODO.md` (Phase 4).
+
+Critère d'acceptation
+Un admin société peut valider ou rejeter un chauffeur `en_attente` de sa société ; le changement de statut est immédiatement reflété côté API (`statut_validation`, vérifiable via l'app chauffeur ou l'admin Django natif) ; un admin société ne peut pas agir sur un chauffeur d'une autre société.
+
+---
+
+## TÂCHE 25 — Interface upload GeoJSON + visualisation carte (Leaflet)
+
+Contexte : projet AutoMbalit, dépôt `autombalit-backend`. Se référer à `SPEC.md` §7, §9, §11 et `DECISIONS.md` (stratégie d'import GeoJSON actée en Tâche 5) avant toute modification.
+
+Branche : `feat/web-admin-upload-geojson-carte`
+
+Constat
+L'endpoint d'upload et de validation GeoJSON existe côté API depuis la Tâche 5 (SRID 4326, type Polygon, properties requises, stratégie all-or-nothing). Aucune interface web ne permet à un admin de l'utiliser — jusqu'ici uniquement testé via des commandes de management ou l'endpoint API directement.
+
+Étape 0 — Avant de coder
+- Confirme si cette interface appelle l'endpoint API existant (Tâche 5) en HTTP interne, ou réutilise directement le service de validation en Python depuis la vue web — à trancher selon ce qui est le plus cohérent avec l'architecture en couches déjà en place (probable : réutiliser le service directement, pas un aller-retour HTTP interne).
+
+TÂCHE
+1. Formulaire d'upload d'un fichier GeoJSON, scoped à la société de l'admin connecté.
+2. Affichage clair des erreurs de validation (SRID, géométrie, properties) retournées par le service existant, feature par feature si plusieurs erreurs.
+3. Carte Leaflet (tuiles OSM, pas de dépendance payante) affichant les zones existantes de la société de l'admin, avec un rafraîchissement après un upload réussi.
+4. Ne pas implémenter : l'édition d'une zone existante après upload (hors périmètre), la gestion des tournées elle-mêmes (déjà couverte par l'API CRUD de la Tâche 4, pas re-fait ici en UI web sauf si tu juges que c'est nécessaire pour rendre l'écran utile — dans ce cas, signale-le avant de l'ajouter).
+
+Contraintes
+- Pas de dépendance à un SDK cartographique payant (Leaflet + OSM uniquement).
+- Respect de la stratégie d'import déjà actée (Tâche 5, `DECISIONS.md`) — ne pas la redéfinir.
+- Tests : upload valide crée la zone et l'affiche sur la carte, upload invalide affiche les erreurs sans créer de zone.
+
+Process
+- Ne fais aucun commit avant que je te dise explicitement "commit".
+- Avant de coder : confirme le mécanisme d'appel au service de validation existant.
+- En fin de tâche : coche `TODO.md` (Phase 4).
+
+Critère d'acceptation
+Un admin société peut uploader un GeoJSON valide et voir la nouvelle zone apparaître sur la carte Leaflet ; un GeoJSON invalide affiche un message d'erreur clair sans créer de zone.
+
+---
+
+## TÂCHE 26 — Gestion des calendriers de collecte par zone
+
+Contexte : projet AutoMbalit, dépôt `autombalit-backend`. Se référer à `SPEC.md` §3, §7, §11 avant toute modification.
+
+Branche : `feat/web-admin-calendriers`
+
+Constat
+`GET /api/zones/{id}/calendrier/` existe côté API (complément découvert pendant la Tâche 19), mais aucun endpoint d'écriture ni interface web ne permet de créer/modifier un `CalendrierCollecte` — jusqu'ici uniquement fait via une commande de management de test.
+
+Étape 0 — Avant de coder
+- Vérifie si un endpoint API d'écriture sur `CalendrierCollecte` existe déjà ; si non, ce sera un complément backend nécessaire avant l'interface web, comme pour les tâches précédentes ayant révélé un manque similaire (14, 15, 17, 18).
+
+TÂCHE
+1. Si nécessaire (cf. Étape 0), ajoute un endpoint CRUD minimal sur `CalendrierCollecte`, scoped à la société de l'utilisateur (via la `Zone` associée).
+2. Liste des calendriers par zone pour la société de l'admin connecté.
+3. Formulaire de création/édition (jour de la semaine, heure estimée, tournée associée).
+4. Suppression d'une entrée de calendrier.
+5. Ne pas implémenter : la génération automatique de calendrier à partir de l'historique de positions (hors périmètre, resterait manuel pour l'instant).
+
+Contraintes
+- Un admin société ne gère que les calendriers des zones desservies par des tournées de sa société.
+- Tests : création/édition/suppression fonctionnelles, scoping par société respecté.
+
+Process
+- Ne fais aucun commit avant que je te dise explicitement "commit".
+- Avant de coder : confirme le résultat de la vérification de l'Étape 0 (endpoint d'écriture à créer ou déjà existant).
+- En fin de tâche : coche `TODO.md` (Phase 4).
+
+Critère d'acceptation
+Un admin société peut créer, modifier et supprimer une entrée de calendrier pour une zone de sa société ; le résultat est immédiatement visible via `GET /api/zones/{id}/calendrier/` (vérifiable côté app citoyen, écran statut du jour).
+
+---
+
+## TÂCHE 27 — Tableau de bord des signalements par zone/société
+
+Contexte : projet AutoMbalit, dépôt `autombalit-backend`. Se référer à `SPEC.md` §3, §9, §11 avant toute modification.
+
+Branche : `feat/web-admin-signalements`
+
+Constat
+Le modèle `Signalement` existe et l'app citoyen peut en créer (Tâche 20), mais aucune vue web admin ne permet à une société de les consulter — dernière tâche de la Phase 4, peu prioritaire tant qu'aucun vrai citoyen n'utilise l'app en dehors des tests.
+
+Étape 0 — Avant de coder
+- Vérifie les champs exacts du modèle `Signalement` (type, commentaire, zone/camion nullable, horodatage) et confirme s'il existe déjà un champ de statut de traitement ("traité"/"non traité") — sinon, propose s'il faut l'ajouter dans cette tâche ou la laisser en lecture seule pour l'instant.
+
+TÂCHE
+1. Liste des signalements pour la société de l'admin connecté, filtrable par zone, type et période.
+2. Vue agrégée simple (nombre de signalements par zone, par type) pour repérer les zones à problème.
+3. Si un champ de statut de traitement est confirmé nécessaire à l'Étape 0, ajoute-le avec une action "marquer comme traité" — sinon, cette tâche reste en lecture seule/consultation.
+4. Ne pas implémenter : de réponse automatique au citoyen, ni de lien avec l'ajustement du facteur de correction ETA (mentionné comme piste en `SPEC.md` §8, mais hors périmètre MVP).
+
+Contraintes
+- Un admin société ne voit que les signalements liés à sa société (via la zone/tournée desservie).
+- Tests : filtrage correct, scoping par société respecté, agrégation correcte sur un petit jeu de données de test.
+
+Process
+- Ne fais aucun commit avant que je te dise explicitement "commit".
+- Avant de coder : confirme la nécessité ou non d'un champ de statut de traitement.
+- En fin de tâche : coche `TODO.md` (Phase 4) — ce qui clôture la Phase 4 telle que listée actuellement.
+
+Critère d'acceptation
+Un admin société voit la liste et l'agrégation des signalements de sa société, filtrable par zone/type/période ; un admin d'une autre société ne voit pas ces données.
+
+---
+
+*Les tâches suivantes (Phase 5 — test pilote réel) seront rédigées au fur et à mesure, une fois les tâches précédentes validées.*
