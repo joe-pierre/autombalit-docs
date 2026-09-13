@@ -44,7 +44,7 @@
 - [x] App Citoyen : auth OTP, enregistrement du domicile (flutter_map)
 - [x] App Citoyen : réception et affichage des notifications FCM
 - [x] App Citoyen : écran statut du jour (calendrier + dernier passage connu, cache local)
-- [ ] App Citoyen : carte live optionnelle (WebSocket, à la demande)
+- [x] App Citoyen : carte live optionnelle (WebSocket, à la demande)
 - [x] App Citoyen : formulaire de signalement
 
 ## Phase 4 — Web admin
