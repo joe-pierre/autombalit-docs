@@ -47,6 +47,27 @@ docker compose exec backend python manage.py update_zone_test_polygone zone_ouak
 - Argument positionnel obligatoire : chemin du fichier GeoJSON (`Polygon`, `Feature`, ou `FeatureCollection` avec un seul `Polygon`) ; `--nom-zone` pour cibler une autre zone que `Zone Test`.
 - Nécessite que la `Zone` cible existe déjà (échoue explicitement sinon, avec le message indiquant de lancer `seed_tournee_test` d'abord).
 
+## 4. Calendrier de collecte de test (écran statut du jour, Tâche 19)
+
+Le bloc « Calendrier de collecte » de l'écran statut du jour citoyen affiche « Aucun jour de collecte connu » tant qu'aucun `CalendrierCollecte` n'existe pour la `Tournee` desservant la zone du domicile. Crée les entrées de test :
+
+```bash
+docker compose exec backend python manage.py seed_calendrier_test
+```
+
+- Rattache le calendrier à la `Tournee` de test (`Tournée Test` par défaut, `--nom-tournee`) — doit déjà exister (voir §2).
+- Jours de passage par défaut : `lundi,jeudi` (`--jours`, valeurs séparées par des virgules parmi lundi/mardi/mercredi/jeudi/vendredi/samedi/dimanche).
+- Heure de passage par défaut : `07:30` (`--heure`, format `HH:MM`) — collecte matinale plausible, cohérente avec la fixture du polygone de zone (§3).
+- Idempotent (`CalendrierCollecte.objects.update_or_create` par `(tournee, jour_semaine)`, contrainte unique du modèle) — rejouable sans dupliquer, y compris pour changer l'heure ou la liste de jours d'un appel à l'autre.
+
+Vérification directe de l'endpoint consommé par l'app citoyen :
+
+```bash
+curl -H "Authorization: Bearer <JWT citoyen>" http://localhost:8000/api/zones/3/calendrier/
+```
+
+Doit renvoyer les deux entrées (`jour_semaine`, `jour_semaine_libelle`, `heure_debut_estimee`, `tournee_nom`).
+
 ## Second jeu de données (créé manuellement, hors commande)
 
 Un premier chauffeur de test (`+221781531736`, numéro réel avec vraie carte SIM) a été créé avant l'existence de ces commandes, avec son propre `Camion` (`DK-0001-TEST`), sa `Tournee` (« Tournée Médina (test manuel) ») et son `AssignationJournaliere` du jour — non recréé par les commandes ci-dessus (noms différents). Pas de commande dédiée pour ce jeu de données ; à recréer manuellement si nécessaire, ou à migrer vers `seed_chauffeur_test`/`seed_tournee_test` avec les bons paramètres si on veut le rendre reproductible aussi.
