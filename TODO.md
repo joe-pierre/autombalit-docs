@@ -51,7 +51,7 @@
 
 - [x] Trancher le choix frontend web admin (Django templates vs templates + htmx) — htmx retenu, socle app `web_admin` + Tailwind CSS + modèle de permission `AdminSociete` posés (Tâche 23)
 - [x] Interface d'upload GeoJSON + visualisation carte (Leaflet)
-- [ ] Gestion des calendriers de collecte par zone
+- [x] Gestion des calendriers de collecte par zone
 - [x] Validation des comptes chauffeurs
 - [ ] Tableau de bord des signalements par zone/société
 

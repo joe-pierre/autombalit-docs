@@ -773,6 +773,26 @@ répété toutes les 3 secondes, soit exactement `_delaiReconnexion` côté `Car
 
 **Statut :** ✅ Résolu (code + tests + analyse statique) — validation manuelle finale sur appareil physique en attente de confirmation par l'utilisateur ; commit en attente d'accord (`autombalit-mobile`).
 
+## [RÉSOLU] Tâche 26 : gestion des calendriers de collecte (web admin) — service direct, scoping via `tournee.societe`
+
+**Contexte :** `GET /api/zones/{id}/calendrier/` existait déjà (Tâche 19) mais aucune écriture sur `CalendrierCollecte` n'était possible hors commande de management de test. Deux points confirmés par l'utilisateur avant de coder (`AskUserQuestion`, Étape 0). Branche `feat/web-admin-calendriers` (`autombalit-backend`), au-dessus de `feat/web-admin-upload-geojson-carte`.
+
+**Décision (architecture d'écriture) :** pas de nouvel endpoint DRF `/api/admin/calendriers/` (pourtant listé comme « Ouvert » dans `SPEC.md` §7) — les vues web admin appellent directement le formulaire/modèle Django, même logique que la Tâche 25 (GeoJSON) : aucun autre client (mobile, script) n'a besoin d'écrire sur `CalendrierCollecte` aujourd'hui, un aller-retour HTTP interne aurait été de la complexité non justifiée.
+
+**Correction de scoping :** l'énoncé de la Tâche 26 évoquait un scoping « via la Zone associée », mais `CalendrierCollecte` est rattaché à `Tournee` (pas directement à `Zone`), et `Tournee.societe` est déjà une FK directe et obligatoire (Tâche 2). Le scoping passe donc par `tournee__societe__in=societes_visibles(user)`, plus direct, sans dépendre d'un rattachement `TourneeZone` préalable.
+
+**Implémentation :**
+- Sélecteurs `core/selectors/tournees.py::tournees_visibles` (nouveau) et `core/selectors/calendriers.py::calendriers_visibles`/`get_calendrier_visible` (ajoutés à côté du `get_calendrier_zone` existant de la Tâche 19).
+- `web_admin/forms.py::CalendrierCollecteForm` (`ModelForm`), champ `tournee` restreint aux tournées visibles par l'admin connecté ; la contrainte `unique_together (tournee, jour_semaine)` du modèle est revalidée automatiquement par `ModelForm.validate_unique()` (erreur non-field affichée si doublon), sans code de validation supplémentaire.
+- `web_admin/views.py` : `CalendriersPlaceholderView` remplacée par `CalendriersView` (liste + création), `CalendrierModifierView` (page dédiée, cohérent avec les autres formulaires pleine page du web admin) et `CalendrierSupprimerView` (même pattern 404-si-non-visible que `_ChauffeurDecisionView`, Tâche 24).
+- Pas de couche `services/` dédiée : le CRUD est trivial une fois le scoping extrait dans les sélecteurs (`CONVENTIONS.md` — service layer réservé à la logique métier non triviale).
+
+**Vérification :** 9 nouveaux tests (`web_admin/tests/test_calendriers.py` — scoping liste, création/édition/suppression réussies, rejet tournée d'une autre société, rejet doublon jour/tournée, 404 sur entrée d'une autre société), suite complète 220 tests au vert (`docker compose exec backend pytest`) ; `check`/`makemigrations --check --dry-run` propres. Vérification manuelle de bout en bout via `curl` contre la vraie stack Docker Compose : connexion admin société jetable → création/édition/suppression d'une entrée → entrée créée immédiatement visible via `GET /api/zones/{id}/calendrier/` (critère d'acceptation) ; données de test nettoyées après vérification.
+
+**Non fait dans cette tâche** (hors périmètre annoncé) : génération automatique de calendrier à partir de l'historique de positions ; endpoint DRF public `/api/admin/calendriers/` (SPEC.md §7 reste à corriger dans une prochaine passe documentaire pour refléter ce choix).
+
+**Statut :** ✅ Résolu (code + tests + vérification manuelle de bout en bout) — commit en attente d'accord (`autombalit-backend`).
+
 ## [RÉSOLU] Tâche 23 : socle web admin — htmx, app `web_admin`, modèle de permission `AdminSociete`
 
 **Contexte :** ouvre la Phase 4 (`autombalit-backend`). `CONVENTIONS.md` laissait ouvert le choix templates classiques vs templates + htmx, à trancher avant implémentation ; aucun rôle admin société/super admin n'existait encore. Trois points confirmés par l'utilisateur avant de coder (`AskUserQuestion`, Étape 0), tous les choix recommandés retenus. Branche `feat/web-admin-socle` (`autombalit-backend`), au-dessus de `test/websocket-timeout-regression`.
