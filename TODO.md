@@ -54,11 +54,12 @@
 - [x] Gestion des calendriers de collecte par zone
 - [x] Validation des comptes chauffeurs
 - [x] Tableau de bord des signalements par zone/société
+- [x] Outil de précision ETA : écart entre ETA annoncée et passage réel, par zone/jour + indicateur agrégé (lecture seule, ajustement du facteur de correction toujours manuel)
 
 ## Phase 5 — Test pilote réel
 
 - [ ] Déploiement sur le quartier pilote avec un camion volontaire
-- [ ] Mesure de la précision réelle de l'ETA
+- [ ] Mesure de la précision réelle de l'ETA — outil disponible (Phase 4), reste à l'utiliser sur des données terrain réelles une fois le pilote lancé
 - [ ] Ajustement du facteur de correction par zone à partir des données terrain
 - [ ] Collecte et analyse des premiers signalements
 - [ ] Décision go/no-go pour extension à d'autres quartiers/sociétés
