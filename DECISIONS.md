@@ -742,3 +742,31 @@
 **Non fait dans cette tâche** (hors périmètre annoncé) : historique de trajet sur la carte (exclu explicitement par le Constat) ; endpoint backend « camion en_cours pour cette zone aujourd'hui » (voir choix Étape 0 ci-dessus, limite assumée).
 
 **Statut :** ✅ Résolu (code + tests + build) — test interactif sur appareil physique en attente de confirmation par l'utilisateur ; commit en attente d'accord (`autombalit-mobile`). Clôture la Phase 3 telle que listée dans `TODO.md` à ce jour.
+
+## [RÉSOLU] Tâche 22 (bug post-livraison) : token JWT expiré jamais rafraîchi avant l'ouverture de la carte live
+
+**Contexte :** trouvé lors du premier test manuel réel sur téléphone physique de la carte live citoyen (justement la vérification de bout en bout notée comme non faite ci-dessus). Le tunnel MQTT (Tâche 15/16, `adb reverse tcp:1883`) venait d'être corrigé côté chauffeur, mais côté citoyen la carte live restait bloquée sur « Connexion interrompue — nouvelle tentative en cours... » en boucle.
+
+**Symptôme :** l'écran carte live n'affiche jamais de position et boucle indéfiniment sur le message de reconnexion, alors que le tunnel `adb reverse tcp:8000` est actif et que l'URL WebSocket construite par `CarteLiveRepository` correspond exactement à la route exposée par `realtime/routing.py` (Tâche 21).
+
+**Diagnostic :** les logs du conteneur `backend` (Daphne) montrent que la connexion **atteint bien le serveur** — contrairement au bug MQTT précédent (tunnel manquant) :
+```
+WebSocket HANDSHAKING /ws/camions/4/ [...]
+WebSocket REJECT      /ws/camions/4/ [...]
+WebSocket DISCONNECT  /ws/camions/4/ [...]
+```
+répété toutes les 3 secondes, soit exactement `_delaiReconnexion` côté `CarteLiveProvider`. Le rejet vient de `PositionConsumer.connect()` (`realtime/consumers.py`) qui ferme avec le code `4401` quand `scope['user']` n'est pas authentifié — résolu par `JWTAuthMiddleware` à partir du `?token=...` en query string. Aucun `SIMPLE_JWT` custom dans `settings.py` : `ACCESS_TOKEN_LIFETIME` reste au défaut simplejwt de **5 minutes**.
+
+**Cause racine :** `CarteLiveRepository.ouvrir()` lisait le token d'accès une seule fois via `tokenStorage.readAccessToken()`, sans jamais vérifier son expiration ni le rafraîchir — contrairement à `ApiClient._send()`, qui intercepte un 401 HTTP et rafraîchit automatiquement via `/auth/token/refresh/`. Le rejet WebSocket (fermeture de connexion, pas de code HTTP inspectable côté client) n'a pas d'équivalent à ce mécanisme, donc `CarteLiveProvider._connecter()` retentait indéfiniment toutes les 3s avec le **même token expiré**, sans jamais réussir ni distinguer ce cas d'une simple coupure réseau.
+
+**Fix (`autombalit-mobile`) :**
+- `common/services/api_client.dart` : `_tenterRafraichissement()` renommée en publique `tenterRafraichissementToken()` — réutilisée telle quelle par `CarteLiveRepository` plutôt que dupliquée (même appel `/auth/token/refresh/`, même persistance via `tokenStorage.saveAccessToken`).
+- `common/services/jwt_expiration.dart` (nouveau) : `jwtEstExpireOuSurLePoint(token, {marge})` — décode localement le payload d'un JWT (`exp`, sans vérifier la signature, qui reste du ressort exclusif du backend) et indique s'il est expiré ou à moins de 30s de l'être. Un token qui n'a pas la forme d'un JWT ou sans `exp` exploitable est traité comme non expiré (rien à en conclure localement, le backend reste seul juge final).
+- `citizen/repositories/carte_live_repository.dart` : nouvelle dépendance `apiClient` (câblée dans `citizen_app.dart`). `ouvrir()` passe désormais par `_lireTokenValide()` : si le token est expiré/sur le point de l'être, tente `apiClient.tenterRafraichissementToken()` avant de construire l'URI WebSocket. Si le refresh échoue (refresh token lui-même expiré/invalide) : vide `tokenStorage` et lève `SessionExpiredException` (réutilisation de l'exception déjà existante dans `common/models/api_exception.dart`, plutôt qu'une nouvelle exception dédiée) — sans jamais tenter la connexion WebSocket avec un token qu'on sait déjà mort. Un échec **réseau** pendant le refresh lui-même continue de lever `NetworkException` (propagée telle quelle depuis `ApiClient`), volontairement non traité comme une session expirée.
+- `citizen/providers/carte_live_provider.dart` : `_connecter()` distingue désormais `SessionExpiredException` (message clair « session expirée — reconnecte-toi pour voir la carte en direct. », `reconnexionEnCours = false`, minuteur annulé, **aucune reconnexion automatique planifiée**) du cas générique restant (coupure réseau réelle : message existant + retry toutes les 3s, comportement inchangé).
+
+**Vérification :**
+- `flutter test` : 92 tests passent (dont 2 nouveaux dans `carte_live_repository_test.dart` — refresh réussi avec token expiré puis connexion avec le nouveau token ; refresh échoué → `SessionExpiredException` + `tokenStorage.clear()` + aucune tentative WebSocket — et 1 nouveau dans `carte_live_provider_test.dart` — `SessionExpiredException` affiche le message clair et n'entraîne aucune reconnexion même après 5 minutes simulées, `fakeAsync`). `flutter analyze` propre (fichiers modifiés + projet entier).
+- **Non fait ici** : validation de bout en bout sur le téléphone physique après une expiration réelle de 5 minutes (nécessiterait de piloter visuellement l'app depuis cet environnement, ce qui n'est pas possible) — reste à confirmer par l'utilisateur, comme pour la vérification de bout en bout déjà notée en attente dans l'entrée Tâche 22 ci-dessus.
+
+**Statut :** ✅ Résolu (code + tests + analyse statique) — validation manuelle finale sur appareil physique en attente de confirmation par l'utilisateur ; commit en attente d'accord (`autombalit-mobile`).
