@@ -488,6 +488,18 @@ docker compose exec backend pytest -v chemin/vers/test_xxx.py   # cibler un fich
 
 Avec Docker Compose, un seul terminal (en mode `-d` ou détaché) suffit pour faire tourner l'ensemble de la stack locale — backend, base, Redis, Mosquitto, OSRM et le listener MQTT.
 
+### 1.12 Web admin : compiler le CSS Tailwind (Tâche 23)
+
+Le web admin (`web_admin/`) utilise Tailwind CSS via le binaire CLI standalone — pas de dépendance Node/npm (cohérent avec la contrainte budget zéro/self-hostable, voir `DECISIONS.md`). Le CSS compilé (`web_admin/static/web_admin/css/tailwind.css`) est **commité** — il n'est pas régénéré automatiquement au démarrage de `docker compose`.
+
+```bash
+bash scripts/build_tailwind.sh
+```
+
+Télécharge le binaire (une fois, dans `bin/tailwindcss`, non commité) puis compile `web_admin/static/web_admin/src/input.css` en `web_admin/static/web_admin/css/tailwind.css`. **À relancer à chaque fois qu'une nouvelle classe Tailwind est utilisée dans un template `web_admin/`** — le binaire scanne les templates pour ne garder que les classes réellement utilisées (tree-shaking automatique de Tailwind v4), donc une classe ajoutée sans relancer le script n'apparaît pas dans le CSS servi.
+
+htmx est vendorisé (`web_admin/static/web_admin/js/htmx.min.js`, commité, pas de CDN au runtime) — rien à installer pour l'utiliser.
+
 ---
 
 ## PHASE 2 — MOBILE LOCAL (FLUTTER SUR TÉLÉPHONE PHYSIQUE)

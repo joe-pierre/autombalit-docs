@@ -49,7 +49,7 @@
 
 ## Phase 4 — Web admin
 
-- [ ] Trancher le choix frontend web admin (Django templates vs templates + htmx)
+- [x] Trancher le choix frontend web admin (Django templates vs templates + htmx) — htmx retenu, socle app `web_admin` + Tailwind CSS + modèle de permission `AdminSociete` posés (Tâche 23)
 - [ ] Interface d'upload GeoJSON + visualisation carte (Leaflet)
 - [ ] Gestion des calendriers de collecte par zone
 - [ ] Validation des comptes chauffeurs
