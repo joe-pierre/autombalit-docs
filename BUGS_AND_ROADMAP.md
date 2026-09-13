@@ -26,6 +26,7 @@ Aucun confirmé pour l'instant. Point de vigilance (pas un bug ouvert actif) : l
 - Pondération de la fiabilité d'un signalement si un utilisateur en soumet un volume anormalement élevé (anti-abus avancé).
 - Étude de modèle économique (abonnement B2B société de collecte, contrat mairie, subvention/ONG) une fois la preuve de concept validée.
 - Clarification contractuelle de la gouvernance des données si plusieurs sociétés/mairies utilisent la plateforme (propriété, export, réutilisation).
+- **Détection automatique du retour de connectivité côté app citoyen** (écran statut du jour, Tâche 19) : vérifié qu'aucune logique de ce type n'existe (pas de `connectivity_plus` ni d'écoute équivalente, `DECISIONS.md`) — `StatutDuJourProvider.charger()` n'est déclenché qu'au démarrage de l'app ou par un tir-pour-rafraîchir manuel (`RefreshIndicator`). En usage réel (coupures réseau fréquentes au Sénégal, SPEC.md §1), un citoyen qui rouvre l'app après une coupure reste bloqué sur des données figées (calendrier en cache, dernier passage périmé) tant qu'il ne rafraîchit pas manuellement. À évaluer : écoute des changements de connectivité (`connectivity_plus`) ou rechargement automatique au retour au premier plan (`WidgetsBindingObserver`/`didChangeAppLifecycleState`) pour redéclencher `charger()` sans action de l'utilisateur.
 
 ## Points légaux/confidentialité à traiter avant un lancement public (non bloquant pour le MVP pilote)
 
