@@ -53,7 +53,7 @@
 - [x] Interface d'upload GeoJSON + visualisation carte (Leaflet)
 - [x] Gestion des calendriers de collecte par zone
 - [x] Validation des comptes chauffeurs
-- [ ] Tableau de bord des signalements par zone/société
+- [x] Tableau de bord des signalements par zone/société
 
 ## Phase 5 — Test pilote réel
 

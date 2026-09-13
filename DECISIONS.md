@@ -812,3 +812,23 @@ répété toutes les 3 secondes, soit exactement `_delaiReconnexion` côté `Car
 **Non fait dans cette tâche** (hors périmètre annoncé) : fonctionnalités métier des sections (upload GeoJSON, calendriers, validation chauffeurs, signalements — Tâches 24-27) ; vue de création/gestion de compte admin société (provisioning manuel pour l'instant).
 
 **Statut :** ✅ Résolu (code + tests + vérification manuelle de bout en bout) — commit en attente d'accord (`autombalit-backend`).
+
+## [RÉSOLU] Tâche 27 : tableau de bord des signalements (web admin) — lecture seule, scoping camion prioritaire sur zone
+
+**Contexte :** dernière tâche de la Phase 4. `Signalement` (`citizens/models.py`) existe depuis la Tâche 20 mais aucune vue web admin ne permettait de le consulter. Deux points confirmés par l'utilisateur avant de coder (`AskUserQuestion`, Étape 0). Branche `feat/web-admin-signalements` (`autombalit-backend`), au-dessus de `feat/web-admin-calendriers`.
+
+**Décision (statut de traitement) :** pas de champ « traité »/« non traité » ajouté — tâche gardée en lecture seule/consultation, conformément au Constat qui la qualifie explicitement de « peu prioritaire tant qu'aucun vrai citoyen n'utilise l'app » et à `SPEC.md` qui ne prévoit pas ce champ. Ajoutable dans une tâche dédiée si le besoin devient concret.
+
+**Décision (scoping) :** l'énoncé de la Tâche 27 évoquait un scoping « via la zone/tournée desservie », mais `Signalement` n'a ni FK `tournee` ni FK `societe` directe — seulement `camion` (FK `Camion.societe`, non-nullable, fiable) et `zone` (FK `Zone.societe`, nullable) chacun indépendamment nullable (cas « camion jamais vu », Tâche 20). Règle retenue : `camion.societe` en priorité, `zone.societe` en repli si le camion n'est pas connu — même logique de priorité que `citizens.services.signalements.creer_signalement` (dédoublonnage anti-abus, Tâche 20). Un signalement sans camion ni zone rattachable à une société (« orphelin ») n'est visible que du super admin — même règle que pour une `Zone` orpheline (`societe=None`, Tâche 25).
+
+**Implémentation :**
+- `citizens/selectors/signalements.py` (nouveau) : `signalements_visibles` (scoping camion/zone ci-dessus, `Signalement.objects.all()` sans filtre pour un super admin — y compris les orphelins), `signalements_filtres` (zone/type/période optionnels), `agregation_par_zone`/`agregation_par_type` (`Count` + libellé lisible, sur le même queryset filtré affiché en liste — l'agrégation reflète les filtres actifs, pas une vue globale indépendante).
+- `web_admin/forms.py::SignalementFiltreForm` (`forms.Form`, pas de `ModelForm` — aucune écriture), champ `zone` restreint aux zones visibles par l'admin connecté.
+- `web_admin/views.py::SignalementsView` remplace `SignalementsPlaceholderView` ; filtres en `GET` (lecture pure, URL partageable, pas de `CSRF` nécessaire) plutôt qu'en `POST` comme les formulaires de mutation des tâches précédentes. `_SectionPlaceholderView` (Tâche 23) supprimée : plus aucune section en placeholder après cette tâche, dernière de la Phase 4.
+- Pas de nouvel endpoint DRF ni de couche `services/` dédiée : lecture seule, toute la logique de scoping/agrégation vit dans les sélecteurs (`CONVENTIONS.md` — service layer réservé à l'écriture/logique métier non triviale).
+
+**Vérification :** 15 nouveaux tests (`citizens/tests/test_selectors_signalements.py` — scoping camion/zone/orphelin/super admin, filtres, agrégation ; `web_admin/tests/test_signalements.py` — mêmes garanties via le client de test HTTP, plus restriction du choix de zone dans le formulaire de filtre), suite complète 235 tests au vert (`docker compose exec backend pytest`) ; `check`/`makemigrations --check --dry-run` propres (aucune migration, tâche en lecture seule). Vérification manuelle de bout en bout via `curl` contre la vraie stack Docker Compose : compte admin société jetable, 3 signalements (camion de sa société, zone de sa société sans camion connu, camion d'une autre société) → seuls les 2 premiers visibles et comptés dans les agrégations « Par zone »/« Par type », filtre `?type=pas_passe` fonctionnel ; données de test nettoyées après vérification.
+
+**Non fait dans cette tâche** (hors périmètre annoncé) : réponse automatique au citoyen ; lien avec l'ajustement du facteur de correction ETA (`SPEC.md` §8, piste V2) ; champ de statut de traitement (voir décision ci-dessus).
+
+**Statut :** ✅ Résolu (code + tests + vérification manuelle de bout en bout) — commit en attente d'accord (`autombalit-backend`). Clôture la Phase 4.
